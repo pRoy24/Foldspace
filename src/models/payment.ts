@@ -14,6 +14,7 @@ import type {
   VerifyResponse,
   X402Config
 } from "x402/types";
+
 import type { PaymentRequirementsSelector } from "x402/client";
 import type { Address } from "viem";
 

@@ -6,6 +6,16 @@ export interface EnvConfig {
   x402PrivateKey?: string;
   x402DefaultNetwork?: string;
   coinbaseFacilitatorUrl?: string;
+  t2vApiKey?: string;
+  t2vBaseUrl?: string;
+  t2vPayTo?: string;
+  t2vAsset?: string;
+  t2vNetwork?: string;
+  t2vPricePerCreditMinorUnits?: string;
+  t2vResource?: string;
+  t2vDescription?: string;
+  t2vMimeType?: string;
+  t2vMaxTimeoutSeconds?: string;
 }
 
 type EnvKey = keyof EnvConfig;
@@ -15,7 +25,17 @@ const ENV_VAR_NAMES: Record<EnvKey, string> = {
   cdpApiKeySecret: "CDP_API_KEY_SECRET",
   x402PrivateKey: "X402_PRIVATE_KEY",
   x402DefaultNetwork: "X402_DEFAULT_NETWORK",
-  coinbaseFacilitatorUrl: "X402_FACILITATOR_URL"
+  coinbaseFacilitatorUrl: "X402_FACILITATOR_URL",
+  t2vApiKey: "T2V_API_KEY",
+  t2vBaseUrl: "T2V_BASE_URL",
+  t2vPayTo: "T2V_PAY_TO",
+  t2vAsset: "T2V_ASSET",
+  t2vNetwork: "T2V_NETWORK",
+  t2vPricePerCreditMinorUnits: "T2V_PRICE_PER_CREDIT_MINOR_UNITS",
+  t2vResource: "T2V_RESOURCE",
+  t2vDescription: "T2V_DESCRIPTION",
+  t2vMimeType: "T2V_MIME_TYPE",
+  t2vMaxTimeoutSeconds: "T2V_MAX_TIMEOUT_SECONDS"
 };
 
 let isLoaded = false;
@@ -34,7 +54,17 @@ export const env: EnvConfig = {
   cdpApiKeySecret: process.env[ENV_VAR_NAMES.cdpApiKeySecret],
   x402PrivateKey: process.env[ENV_VAR_NAMES.x402PrivateKey],
   x402DefaultNetwork: process.env[ENV_VAR_NAMES.x402DefaultNetwork],
-  coinbaseFacilitatorUrl: process.env[ENV_VAR_NAMES.coinbaseFacilitatorUrl]
+  coinbaseFacilitatorUrl: process.env[ENV_VAR_NAMES.coinbaseFacilitatorUrl],
+  t2vApiKey: process.env[ENV_VAR_NAMES.t2vApiKey],
+  t2vBaseUrl: process.env[ENV_VAR_NAMES.t2vBaseUrl],
+  t2vPayTo: process.env[ENV_VAR_NAMES.t2vPayTo],
+  t2vAsset: process.env[ENV_VAR_NAMES.t2vAsset],
+  t2vNetwork: process.env[ENV_VAR_NAMES.t2vNetwork],
+  t2vPricePerCreditMinorUnits: process.env[ENV_VAR_NAMES.t2vPricePerCreditMinorUnits],
+  t2vResource: process.env[ENV_VAR_NAMES.t2vResource],
+  t2vDescription: process.env[ENV_VAR_NAMES.t2vDescription],
+  t2vMimeType: process.env[ENV_VAR_NAMES.t2vMimeType],
+  t2vMaxTimeoutSeconds: process.env[ENV_VAR_NAMES.t2vMaxTimeoutSeconds]
 };
 
 export function requireEnvValue(key: EnvKey): string {
