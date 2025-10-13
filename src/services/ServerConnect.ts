@@ -85,6 +85,15 @@ function createHealthRoute(router: Router): void {
   );
 }
 
+function createRootRoute(router: Router): void {
+  router.get(
+    "/",
+    asyncHandler(async (_req, res) => {
+      res.json({ message: "Foldspace Protocol proxy is up." });
+    })
+  );
+}
+
 function createAuthorizationGuard(router: Router): void {
   router.use((req, res, next) => {
     if (!req.headers.authorization) {
@@ -167,6 +176,7 @@ export function connectToWebService(options: WebServiceConnectOptions = {}): Rou
 
   router.use(express.json());
 
+  createRootRoute(router);
   createHealthRoute(router);
 
   if (options.requireAuthorization ?? true) {
