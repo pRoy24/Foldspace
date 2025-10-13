@@ -1,6 +1,6 @@
 ## Foldspace
 
-Foldspace is an EthOnline 2025 submission that wires Coinbase's X402 payment rails directly into the SamsarOne T2V (text-to-video) API. It quotes, collects, and verifies machine-to-machine payments before forwarding creative requests to SamsarOne.
+Foldspace is (WIP) EthOnline 2025 submission that wires Coinbase's X402 payment rails directly into the SamsarOne T2V (text-to-video) API. It quotes, collects, and verifies machine-to-machine payments before forwarding creative requests to SamsarOne.
 
 ---
 
