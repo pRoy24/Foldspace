@@ -13,6 +13,8 @@ import {
   type LocalVerificationOptions,
   X402FacilitatorService
 } from "./X402FacilitatorService";
+import { AgentverseClient } from "./AgentverseClient";
+import type { AgentverseRegistrationRequest, AgentverseRegistrationResponse } from "../models";
 
 export interface WebServiceConnectOptions {
   /**
@@ -23,6 +25,10 @@ export interface WebServiceConnectOptions {
    * Service instance used to execute facilitator actions. A new instance is created when omitted.
    */
   facilitatorService?: X402FacilitatorService;
+  /**
+   * Client instance used to communicate with the Agentverse API. A new instance is created when omitted.
+   */
+  agentverseClient?: AgentverseClient;
   /**
    * Require the request to include an `Authorization` header before accessing facilitator routes.
    * The `/health` endpoint remains public.
@@ -44,6 +50,17 @@ interface SettleRequestBody {
 
 interface ListResourcesRequestBody {
   request?: ListDiscoveryResourcesRequest;
+}
+
+interface AgentverseRegisterRequestBody {
+  address?: string;
+  challenge?: string;
+  challengeResponse?: string;
+  challenge_response?: string;
+  agentType?: AgentverseRegistrationRequest["agentType"];
+  agent_type?: AgentverseRegistrationRequest["agentType"];
+  endpoint?: string;
+  prefix?: AgentverseRegistrationRequest["prefix"];
 }
 
 type AsyncRouteHandler = (req: Request, res: Response, next: NextFunction) => Promise<void>;
@@ -173,6 +190,7 @@ const defaultErrorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
 export function connectToWebService(options: WebServiceConnectOptions = {}): Router {
   const router = options.router ?? express.Router();
   const facilitator = options.facilitatorService ?? new X402FacilitatorService();
+  const agentverse = resolveAgentverseClient(options.agentverseClient);
 
   router.use(express.json());
 
@@ -184,6 +202,59 @@ export function connectToWebService(options: WebServiceConnectOptions = {}): Rou
   }
 
   createFacilitatorRoutes(router, facilitator);
+  if (agentverse) {
+    createAgentverseRoutes(router, agentverse);
+  }
   router.use(defaultErrorHandler);
   return router;
+}
+
+function resolveAgentverseClient(client?: AgentverseClient): AgentverseClient | undefined {
+  if (client) {
+    return client;
+  }
+
+  try {
+    return new AgentverseClient();
+  } catch (error) {
+    if (process.env.AGENTVERSE_API_KEY) {
+      throw error;
+    }
+    return undefined;
+  }
+}
+
+function validateAgentverseBody(body: AgentverseRegisterRequestBody): AgentverseRegistrationRequest {
+  const challengeResponse = body.challengeResponse ?? body.challenge_response;
+  const agentType = body.agentType ?? body.agent_type;
+
+  if (!body.address) {
+    throw new Error("Missing Agentverse registration field: address");
+  }
+  if (!body.challenge) {
+    throw new Error("Missing Agentverse registration field: challenge");
+  }
+  if (!challengeResponse) {
+    throw new Error("Missing Agentverse registration field: challengeResponse");
+  }
+
+  return {
+    address: body.address,
+    challenge: body.challenge,
+    challengeResponse,
+    agentType,
+    endpoint: body.endpoint,
+    prefix: body.prefix
+  };
+}
+
+function createAgentverseRoutes(router: Router, agentverse: AgentverseClient): void {
+  router.post(
+    "/agentverse/register",
+    asyncHandler(async (req, res) => {
+      const request = validateAgentverseBody((req.body ?? {}) as AgentverseRegisterRequestBody);
+      const response: AgentverseRegistrationResponse = await agentverse.registerAgent(request);
+      res.json(response);
+    })
+  );
 }

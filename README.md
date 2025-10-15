@@ -19,10 +19,12 @@ Foldspace is (WIP) EthOnline 2025 submission that wires Coinbase's X402 payment 
   Bridges to the Coinbase X402 facilitator or performs local on-chain verification/settlement with a signer key.
 - **`src/services/T2VApiClient.ts`**  
   Minimal HTTP client for `POST /create` and `GET /status` SamsarOne endpoints.
+- **`src/services/AgentverseClient.ts`**  
+  Registers agents with Agentverse `POST /v1/agents`.
 - **`src/services/ServerConnect.ts`** & **`src/server.ts`**  
   Express router exposing `/facilitator/*` and `/payments/*` routes, optionally guarded by an `Authorization` header.
 - **`src/config`**  
-  Builders for facilitator, T2V API, and payment configuration sourced from environment variables.
+  Builders for facilitator, T2V API, payment, and Agentverse configuration sourced from environment variables.
 
 ---
 
@@ -67,6 +69,15 @@ You need to provision a SamsarOne API key and request X402 API credentials from 
 | `T2V_MIME_TYPE` | MIME type for the payment payload; defaults to `application/json`. |
 | `T2V_MAX_TIMEOUT_SECONDS` | Maximum facilitator timeout before expiring a payment (defaults to `600`). |
 
+#### Agentverse Integration
+| Variable | Description |
+| --- | --- |
+| `AGENTVERSE_API_KEY` | Agentverse bearer token used for `POST /v1/agents` registration (required to enable Agentverse routes). |
+| `AGENTVERSE_BASE_URL` | Optional override for the Agentverse API base URL. Defaults to `https://agentverse.ai/`. |
+| `AGENTVERSE_DEFAULT_AGENT_TYPE` | Default agent type (`mailbox`, `proxy`, or `custom`) applied when the request omits `agentType`. |
+| `AGENTVERSE_DEFAULT_PREFIX` | Default registration prefix (`agent` or `test-agent`). |
+| `AGENTVERSE_DEFAULT_ENDPOINT` | Default callback endpoint included in registration payloads when `endpoint` is omitted. |
+
 #### Runtime Only
 | Variable | Description |
 | --- | --- |
@@ -99,6 +110,7 @@ All routes are mounted at `/` by `src/server.ts` and require a Bearer `Authoriza
 | `POST /payments/settle` | Calls facilitator `settle`. |
 | `POST /payments/verify/onchain` | Performs local on-chain verification. |
 | `POST /payments/settle/onchain` | Performs local on-chain settlement using the configured signer. |
+| `POST /agentverse/register` | Registers an agent with Agentverse using the configured API credentials. |
 
 ---
 
@@ -115,9 +127,9 @@ The `T2VOrchestrator` service streamlines paid submissions:
 ### Project Structure
 ```
 src/
-  config/        // Environment-driven builders for facilitator & T2V settings
-  models/        // Type-safe interfaces for payments and T2V payloads
-  services/      // Core business logic (facilitator wrapper, orchestrator, API client)
+  config/        // Environment-driven builders for facilitator, T2V, and Agentverse settings
+  models/        // Type-safe interfaces for payments, T2V payloads, and Agentverse requests
+  services/      // Core business logic (facilitator wrapper, orchestrator, HTTP clients)
   server.ts      // Express server bootstrap
   index.ts       // Library entry point exporting configs and services
 ```

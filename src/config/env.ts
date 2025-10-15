@@ -16,6 +16,11 @@ export interface EnvConfig {
   t2vDescription?: string;
   t2vMimeType?: string;
   t2vMaxTimeoutSeconds?: string;
+  agentverseBaseUrl?: string;
+  agentverseApiKey?: string;
+  agentverseDefaultPrefix?: string;
+  agentverseDefaultAgentType?: string;
+  agentverseDefaultEndpoint?: string;
 }
 
 type EnvKey = keyof EnvConfig;
@@ -35,7 +40,12 @@ const ENV_VAR_NAMES: Record<EnvKey, string> = {
   t2vResource: "T2V_RESOURCE",
   t2vDescription: "T2V_DESCRIPTION",
   t2vMimeType: "T2V_MIME_TYPE",
-  t2vMaxTimeoutSeconds: "T2V_MAX_TIMEOUT_SECONDS"
+  t2vMaxTimeoutSeconds: "T2V_MAX_TIMEOUT_SECONDS",
+  agentverseBaseUrl: "AGENTVERSE_BASE_URL",
+  agentverseApiKey: "AGENTVERSE_API_KEY",
+  agentverseDefaultPrefix: "AGENTVERSE_DEFAULT_PREFIX",
+  agentverseDefaultAgentType: "AGENTVERSE_DEFAULT_AGENT_TYPE",
+  agentverseDefaultEndpoint: "AGENTVERSE_DEFAULT_ENDPOINT"
 };
 
 let isLoaded = false;
@@ -64,7 +74,12 @@ export const env: EnvConfig = {
   t2vResource: process.env[ENV_VAR_NAMES.t2vResource],
   t2vDescription: process.env[ENV_VAR_NAMES.t2vDescription],
   t2vMimeType: process.env[ENV_VAR_NAMES.t2vMimeType],
-  t2vMaxTimeoutSeconds: process.env[ENV_VAR_NAMES.t2vMaxTimeoutSeconds]
+  t2vMaxTimeoutSeconds: process.env[ENV_VAR_NAMES.t2vMaxTimeoutSeconds],
+  agentverseBaseUrl: process.env[ENV_VAR_NAMES.agentverseBaseUrl],
+  agentverseApiKey: process.env[ENV_VAR_NAMES.agentverseApiKey],
+  agentverseDefaultPrefix: process.env[ENV_VAR_NAMES.agentverseDefaultPrefix],
+  agentverseDefaultAgentType: process.env[ENV_VAR_NAMES.agentverseDefaultAgentType],
+  agentverseDefaultEndpoint: process.env[ENV_VAR_NAMES.agentverseDefaultEndpoint]
 };
 
 export function requireEnvValue(key: EnvKey): string {
