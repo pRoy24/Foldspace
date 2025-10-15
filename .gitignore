@@ -5,3 +5,8 @@ dist/
 .vscode/
 .idea/
 .env.*
+
+# Demo UI project artifacts
+demo_ui/node_modules/
+demo_ui/.next/
+demo_ui/out/

@@ -1,0 +1,477 @@
+.page {
+  min-height: 100vh;
+  padding: 56px 24px 72px;
+  display: flex;
+  justify-content: center;
+  color: var(--foreground);
+}
+
+.container {
+  width: 100%;
+  max-width: 1180px;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.title {
+  font-size: clamp(2rem, 2vw + 1.2rem, 3rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.subtitle {
+  color: var(--muted);
+  font-size: 1.05rem;
+  max-width: 720px;
+  line-height: 1.6;
+}
+
+.surface {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 24px;
+  box-shadow: var(--shadow);
+}
+
+.settingsSection {
+  display: grid;
+  gap: 18px;
+}
+
+.settingsHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.settingsHeader h2 {
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+.settingsHint {
+  color: var(--muted-foreground);
+  font-size: 0.95rem;
+}
+
+.settingsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 18px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.select,
+.input,
+.textarea {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.6);
+  border-radius: 12px;
+  padding: 10px 14px;
+  font-size: 0.95rem;
+  transition: border 0.2s ease, box-shadow 0.2s ease;
+  color: inherit;
+}
+
+.textarea {
+  min-height: 120px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.select:focus,
+.input:focus,
+.textarea:focus {
+  outline: none;
+  border-color: rgba(37, 99, 235, 0.45);
+  box-shadow: 0 0 0 3px var(--accent-muted);
+}
+
+.balances {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.balanceCard {
+  flex: 1;
+  min-width: 180px;
+  background: rgba(241, 245, 249, 0.6);
+  border: 1px solid rgba(15, 23, 42, 0.05);
+  border-radius: 16px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.balanceLabel {
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+
+.balanceValue {
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+.quickActions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tabs {
+  display: inline-flex;
+  padding: 4px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.06);
+  width: fit-content;
+}
+
+.tabButton {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.95rem;
+  font-weight: 500;
+  padding: 10px 18px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+}
+
+.tabButtonActive {
+  background: var(--surface);
+  color: var(--foreground);
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.18);
+  transform: translateY(-1px);
+}
+
+.tabPanel {
+  display: grid;
+  gap: 20px;
+}
+
+.panelHeader {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.panelTitle {
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+.panelSubtitle {
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.button {
+  appearance: none;
+  border: none;
+  border-radius: 12px;
+  background: var(--accent);
+  color: var(--accent-foreground);
+  font-weight: 600;
+  font-size: 0.95rem;
+  padding: 10px 18px;
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+}
+
+.button:not(:disabled):hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 24px rgba(37, 99, 235, 0.25);
+}
+
+.buttonSecondary {
+  background: rgba(15, 23, 42, 0.06);
+  color: var(--foreground);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  box-shadow: none;
+}
+
+.buttonSecondary:hover {
+  box-shadow: none;
+  transform: translateY(-1px);
+}
+
+.buttonDanger {
+  background: rgba(220, 38, 38, 0.12);
+  color: #b91c1c;
+  border: 1px solid rgba(220, 38, 38, 0.25);
+  box-shadow: none;
+}
+
+.inlineForm {
+  display: grid;
+  gap: 18px;
+}
+
+.formGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 18px;
+}
+
+.status {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: rgba(15, 23, 42, 0.04);
+}
+
+.statusBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--foreground);
+  background: rgba(15, 23, 42, 0.1);
+  width: fit-content;
+}
+
+.statusMessage {
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.statusSuccess {
+  background: rgba(22, 163, 74, 0.15);
+  color: #15803d;
+}
+
+.statusError {
+  background: rgba(220, 38, 38, 0.18);
+  color: #b91c1c;
+}
+
+.videoStage {
+  display: grid;
+  gap: 12px;
+}
+
+.videoPlaceholder {
+  border-radius: 20px;
+  border: 1px dashed rgba(37, 99, 235, 0.35);
+  background: linear-gradient(
+      135deg,
+      rgba(37, 99, 235, 0.07),
+      rgba(14, 165, 233, 0.06)
+    ),
+    rgba(255, 255, 255, 0.6);
+  min-height: 220px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(37, 99, 235, 0.9);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.videoFrame {
+  position: relative;
+  border-radius: 20px;
+  overflow: hidden;
+  border: 1px solid rgba(37, 99, 235, 0.25);
+  background: #000;
+  min-height: 220px;
+}
+
+.videoFrame video,
+.videoFrame iframe {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.videoMeta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 4px 10px;
+  background: rgba(37, 99, 235, 0.12);
+  color: rgba(37, 99, 235, 0.95);
+  font-weight: 600;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.emptyState {
+  border: 1px dashed rgba(15, 23, 42, 0.1);
+  border-radius: 16px;
+  padding: 18px;
+  font-size: 0.95rem;
+  color: var(--muted);
+}
+
+.subscriptionGrid {
+  display: grid;
+  gap: 16px;
+}
+
+.subscriptionCard {
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 16px;
+  padding: 16px 18px;
+  background: rgba(255, 255, 255, 0.8);
+  display: grid;
+  gap: 12px;
+}
+
+.subscriptionHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.subscriptionKeyword {
+  font-weight: 600;
+  font-size: 1.05rem;
+}
+
+.eventList {
+  display: grid;
+  gap: 12px;
+}
+
+.eventItem {
+  border-radius: 14px;
+  padding: 12px 14px;
+  background: rgba(15, 23, 42, 0.04);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  display: grid;
+  gap: 4px;
+}
+
+.eventMeta {
+  font-size: 0.82rem;
+  color: var(--muted);
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.eventAmount {
+  font-weight: 600;
+  color: rgba(37, 99, 235, 0.95);
+}
+
+.errorText {
+  color: #b91c1c;
+  font-size: 0.9rem;
+}
+
+.successText {
+  color: #15803d;
+  font-size: 0.9rem;
+}
+
+.actionsRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.caps {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.divider {
+  height: 1px;
+  background: rgba(15, 23, 42, 0.08);
+}
+
+@media (max-width: 960px) {
+  .surface {
+    padding: 20px;
+  }
+
+  .settingsHeader {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .tabButton {
+    padding: 10px 16px;
+    font-size: 0.92rem;
+  }
+}
+
+@media (max-width: 720px) {
+  .page {
+    padding: 36px 16px 56px;
+  }
+
+  .balances {
+    flex-direction: column;
+  }
+
+  .quickActions {
+    width: 100%;
+  }
+
+  .button,
+  .buttonSecondary,
+  .buttonDanger {
+    width: 100%;
+    justify-content: center;
+  }
+}
