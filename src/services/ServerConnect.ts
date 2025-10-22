@@ -234,6 +234,16 @@ function extractPricingRequestBody(req: Request): PricingRequestBody {
 
 function createPricingRoute(router: Router): void {
   const handler = asyncHandler(async (req, res) => {
+    if (req.method === "GET") {
+      const { input: rawInput } = req.query as Record<string, unknown>;
+      if (rawInput === undefined) {
+        res.json({
+          message: "Request pricing by providing a Samsar.One-compatible payload via '?input=' or POSTing the same payload in the request body."
+        });
+        return;
+      }
+    }
+
     let input: T2VCreateVideoInput;
     try {
       input = parseCreateVideoInput(extractPricingRequestBody(req));
