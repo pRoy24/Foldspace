@@ -4,7 +4,9 @@ dist/
 .env
 .vscode/
 .idea/
-.env.*
+.env.production
+.env.development
+
 
 # Demo UI project artifacts
 demo_ui/node_modules/

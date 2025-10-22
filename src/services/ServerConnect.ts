@@ -6,7 +6,17 @@ import type {
   PaymentPayload,
   PaymentRequirements,
   SettleResponse,
-  VerifyResponse
+  VerifyResponse,
+  T2VAspectRatio,
+  T2VCreateVideoInput,
+  T2VTone,
+  T2VImageModelKey,
+  T2VVideoModelKey
+} from "../models";
+import {
+  T2V_IMAGE_MODELS,
+  T2V_VIDEO_MODELS,
+  calculateT2VCostBreakdown
 } from "../models";
 import {
   type LocalSettlementOptions,
@@ -15,6 +25,7 @@ import {
 } from "./X402FacilitatorService";
 import { AgentverseClient } from "./AgentverseClient";
 import type { AgentverseRegistrationRequest, AgentverseRegistrationResponse } from "../models";
+import { buildT2VPaymentConfig } from "../config/t2v";
 
 export interface WebServiceConnectOptions {
   /**
@@ -81,6 +92,14 @@ type SettleRequestBodyValidated = SettleRequestBody & {
   requirements: PaymentRequirements;
 };
 
+interface PricingRequestBody {
+  input?: unknown;
+}
+
+const T2V_TONE_VALUES: readonly T2VTone[] = ["grounded", "cinematic"] as const;
+const T2V_ASPECT_RATIO_VALUES: readonly T2VAspectRatio[] = ["9:16", "16:9"] as const;
+const USDC_DECIMALS = 6n;
+
 function validateVerifyBody(body: VerifyRequestBody): asserts body is VerifyRequestBodyValidated {
   if (!body.payload || !body.requirements) {
     throw new Error("Missing payment payload or requirements in request body.");
@@ -107,6 +126,126 @@ function createRootRoute(router: Router): void {
     "/",
     asyncHandler(async (_req, res) => {
       res.json({ message: "Foldspace Protocol proxy is up." });
+    })
+  );
+}
+
+function isStringRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function assertAllowedValue<TValue extends string>(
+  value: unknown,
+  allowed: readonly TValue[],
+  field: string
+): asserts value is TValue {
+  if (value === undefined) {
+    return;
+  }
+  if (typeof value !== "string" || !(allowed as readonly string[]).includes(value)) {
+    throw new Error(`Invalid ${field}. Expected one of: ${(allowed as readonly string[]).join(", ")}`);
+  }
+}
+
+function parseCreateVideoInput(body: PricingRequestBody): T2VCreateVideoInput {
+  if (!isStringRecord(body)) {
+    throw new Error("Request body must be a JSON object.");
+  }
+  if (!isStringRecord(body.input)) {
+    throw new Error("Missing Samsar.One-compatible payload under 'input'.");
+  }
+
+  const input = body.input as Record<string, unknown>;
+  const prompt = input.prompt;
+  if (typeof prompt !== "string" || prompt.trim().length === 0) {
+    throw new Error("Input.prompt is required and must be a non-empty string.");
+  }
+
+  const sanitized: T2VCreateVideoInput = {
+    prompt: prompt.trim()
+  };
+
+  if ("duration" in input) {
+    const { duration } = input;
+    if (typeof duration !== "number" || Number.isNaN(duration)) {
+      throw new Error("Input.duration must be a number when provided.");
+    }
+    sanitized.duration = duration;
+  }
+
+  if ("image_model" in input) {
+    const imageModel = input.image_model;
+    assertAllowedValue<T2VImageModelKey>(imageModel, T2V_IMAGE_MODELS, "input.image_model");
+    sanitized.image_model = imageModel;
+  }
+
+  if ("video_model" in input) {
+    const videoModel = input.video_model;
+    assertAllowedValue<T2VVideoModelKey>(videoModel, T2V_VIDEO_MODELS, "input.video_model");
+    sanitized.video_model = videoModel;
+  }
+
+  if ("tone" in input) {
+    const tone = input.tone;
+    assertAllowedValue<T2VTone>(tone, T2V_TONE_VALUES, "input.tone");
+    sanitized.tone = tone;
+  }
+
+  if ("aspect_ratio" in input) {
+    const aspectRatio = input.aspect_ratio;
+    assertAllowedValue<T2VAspectRatio>(aspectRatio, T2V_ASPECT_RATIO_VALUES, "input.aspect_ratio");
+    sanitized.aspect_ratio = aspectRatio;
+  }
+
+  return sanitized;
+}
+
+function formatMinorUnitsToUsdc(minorUnits: bigint): string {
+  const sign = minorUnits < 0n ? "-" : "";
+  const absolute = minorUnits < 0n ? -minorUnits : minorUnits;
+  const base = 10n ** USDC_DECIMALS;
+  const whole = absolute / base;
+  const fraction = absolute % base;
+  const fractionText = fraction.toString().padStart(Number(USDC_DECIMALS), "0");
+  return `${sign}${whole.toString()}.${fractionText}`;
+}
+
+function createPricingRoute(router: Router): void {
+  router.post(
+    "/request_pricing",
+    asyncHandler(async (req, res) => {
+      let input: T2VCreateVideoInput;
+      try {
+        input = parseCreateVideoInput(req.body as PricingRequestBody);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        res.status(400).json({ error: message });
+        return;
+      }
+
+      try {
+        const paymentConfig = buildT2VPaymentConfig();
+        const breakdown = calculateT2VCostBreakdown(input);
+        const pricePerCreditMinorUnits = paymentConfig.pricePerCreditMinorUnits;
+        const totalMinorUnits = BigInt(breakdown.totalCredits) * pricePerCreditMinorUnits;
+
+        res.json({
+          asset: paymentConfig.asset,
+          network: paymentConfig.network,
+          totalCredits: breakdown.totalCredits,
+          durationSeconds: breakdown.durationSeconds,
+          imageModel: breakdown.imageModel,
+          videoModel: breakdown.videoModel,
+          rateCreditsPerSecond: breakdown.rateCreditsPerSecond,
+          pricePerCreditMinorUnits: pricePerCreditMinorUnits.toString(),
+          pricePerCreditUsdc: formatMinorUnitsToUsdc(pricePerCreditMinorUnits),
+          totalMinorUnits: totalMinorUnits.toString(),
+          totalUsdc: formatMinorUnitsToUsdc(totalMinorUnits)
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        res.status(500).json({ error: message });
+      }
     })
   );
 }
@@ -196,6 +335,7 @@ export function connectToWebService(options: WebServiceConnectOptions = {}): Rou
 
   createRootRoute(router);
   createHealthRoute(router);
+  createPricingRoute(router);
 
   if (options.requireAuthorization ?? true) {
     createAuthorizationGuard(router);

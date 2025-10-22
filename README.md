@@ -78,6 +78,18 @@ You need to provision a SamsarOne API key and request X402 API credentials from 
 | `AGENTVERSE_DEFAULT_PREFIX` | Default registration prefix (`agent` or `test-agent`). |
 | `AGENTVERSE_DEFAULT_ENDPOINT` | Default callback endpoint included in registration payloads when `endpoint` is omitted. |
 
+Once credentials are configured you can deploy your API as an Agentverse agent via:
+
+```bash
+npm run agentverse:deploy -- \
+  --address 0xYourAgentAddress \
+  --challenge "$(cat challenge.txt)" \
+  --private-key 0xyourSignerKey \
+  --endpoint https://your-api.example.com/webhook
+```
+
+The CLI accepts `AGENTVERSE_CHALLENGE`, `AGENTVERSE_CHALLENGE_RESPONSE`, `AGENTVERSE_PRIVATE_KEY`, and other related values as environment variables. When a private key is provided the challenge response signature is generated automatically. Passing `--json` prints the raw API response.
+
 #### Runtime Only
 | Variable | Description |
 | --- | --- |

@@ -10,12 +10,14 @@
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "agentverse:deploy": "ts-node --project tsconfig.json src/cli/agentverseDeploy.ts"
   },
   "dependencies": {
     "@coinbase/coinbase-sdk": "^0.25.0",
     "@coinbase/x402": "^0.6.6",
     "dotenv": "^17.2.3",
+    "ethers": "^6.12.2",
     "express": "^5.1.0"
   },
   "overrides": {
