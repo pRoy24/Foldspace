@@ -210,44 +210,66 @@ function formatMinorUnitsToUsdc(minorUnits: bigint): string {
   return `${sign}${whole.toString()}.${fractionText}`;
 }
 
+function extractPricingRequestBody(req: Request): PricingRequestBody {
+  if (req.method === "GET") {
+    const { input: rawInput } = req.query as Record<string, unknown>;
+    if (rawInput === undefined) {
+      throw new Error("Missing 'input' query parameter.");
+    }
+    if (Array.isArray(rawInput)) {
+      throw new Error("Query parameter 'input' must only be provided once.");
+    }
+    if (typeof rawInput !== "string" || rawInput.trim().length === 0) {
+      throw new Error("Query parameter 'input' must be a non-empty JSON string.");
+    }
+    try {
+      return { input: JSON.parse(rawInput) };
+    } catch {
+      throw new Error("Query parameter 'input' must be valid JSON.");
+    }
+  }
+
+  return (req.body ?? {}) as PricingRequestBody;
+}
+
 function createPricingRoute(router: Router): void {
-  router.post(
-    "/request_pricing",
-    asyncHandler(async (req, res) => {
-      let input: T2VCreateVideoInput;
-      try {
-        input = parseCreateVideoInput(req.body as PricingRequestBody);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        res.status(400).json({ error: message });
-        return;
-      }
+  const handler = asyncHandler(async (req, res) => {
+    let input: T2VCreateVideoInput;
+    try {
+      input = parseCreateVideoInput(extractPricingRequestBody(req));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      res.status(400).json({ error: message });
+      return;
+    }
 
-      try {
-        const paymentConfig = buildT2VPaymentConfig();
-        const breakdown = calculateT2VCostBreakdown(input);
-        const pricePerCreditMinorUnits = paymentConfig.pricePerCreditMinorUnits;
-        const totalMinorUnits = BigInt(breakdown.totalCredits) * pricePerCreditMinorUnits;
+    try {
+      const paymentConfig = buildT2VPaymentConfig();
+      const breakdown = calculateT2VCostBreakdown(input);
+      const pricePerCreditMinorUnits = paymentConfig.pricePerCreditMinorUnits;
+      const totalMinorUnits = BigInt(breakdown.totalCredits) * pricePerCreditMinorUnits;
 
-        res.json({
-          asset: paymentConfig.asset,
-          network: paymentConfig.network,
-          totalCredits: breakdown.totalCredits,
-          durationSeconds: breakdown.durationSeconds,
-          imageModel: breakdown.imageModel,
-          videoModel: breakdown.videoModel,
-          rateCreditsPerSecond: breakdown.rateCreditsPerSecond,
-          pricePerCreditMinorUnits: pricePerCreditMinorUnits.toString(),
-          pricePerCreditUsdc: formatMinorUnitsToUsdc(pricePerCreditMinorUnits),
-          totalMinorUnits: totalMinorUnits.toString(),
-          totalUsdc: formatMinorUnitsToUsdc(totalMinorUnits)
-        });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        res.status(500).json({ error: message });
-      }
-    })
-  );
+      res.json({
+        asset: paymentConfig.asset,
+        network: paymentConfig.network,
+        totalCredits: breakdown.totalCredits,
+        durationSeconds: breakdown.durationSeconds,
+        imageModel: breakdown.imageModel,
+        videoModel: breakdown.videoModel,
+        rateCreditsPerSecond: breakdown.rateCreditsPerSecond,
+        pricePerCreditMinorUnits: pricePerCreditMinorUnits.toString(),
+        pricePerCreditUsdc: formatMinorUnitsToUsdc(pricePerCreditMinorUnits),
+        totalMinorUnits: totalMinorUnits.toString(),
+        totalUsdc: formatMinorUnitsToUsdc(totalMinorUnits)
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      res.status(500).json({ error: message });
+    }
+  });
+
+  router.get("/request_pricing", handler);
+  router.post("/request_pricing", handler);
 }
 
 function createAuthorizationGuard(router: Router): void {
