@@ -3,14 +3,15 @@
 This lightweight Python entry point registers the Foldspace T2V price discovery endpoint as an Agentverse chat agent.
 
 ## Prerequisites
-- Python 3.10+ (or compatible with `uagents-core`)
+- Python 3.10+ (confirmed with `uagents-core==0.3.11`)
 - Agentverse API key and agent seed phrase
 
 ## Setup
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+python -m ensurepip --upgrade  # ensures pip inside the venv on macOS
+python -m pip install -r requirements.txt
 ```
 
 ## Usage

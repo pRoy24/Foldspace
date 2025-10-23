@@ -97,7 +97,8 @@ If you only need to register the public price discovery endpoint with Agentverse
 cd python
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+python -m ensurepip --upgrade
+python -m pip install -r requirements.txt
 export AGENTVERSE_KEY="your-agentverse-api-key"
 export AGENT_SEED_PHRASE="urge stay ... seed phrase ..."
 python register_price_agent.py

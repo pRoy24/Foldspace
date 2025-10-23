@@ -17,3 +17,4 @@ demo_ui/out/
 __pycache__/
 .venv/
 python/.venv/
+python/.env

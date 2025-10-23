@@ -5,14 +5,16 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 
+from dotenv import load_dotenv
 from uagents_core.utils.registration import (
     register_chat_agent,
     RegistrationRequestCredentials,
 )
 
-REGISTRATION_NAME = "T2V Price Discovery Agent"
-REGISTRATION_ENDPOINT = "http://65.109.163.21:3000/request_pricing"
+REGISTRATION_NAME = "T2V Pricing"
+REGISTRATION_ENDPOINT = "http://65.109.163.21/request_pricing"
 
 
 def _get_required_env(name: str) -> str:
@@ -30,6 +32,7 @@ def _get_required_env(name: str) -> str:
 
 def main() -> int:
     """Register the price discovery endpoint with Agentverse."""
+    load_dotenv(dotenv_path=Path(__file__).with_name(".env"))
     try:
         register_chat_agent(
             REGISTRATION_NAME,
