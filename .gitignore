@@ -12,3 +12,8 @@ dist/
 demo_ui/node_modules/
 demo_ui/.next/
 demo_ui/out/
+
+# Python artifacts
+__pycache__/
+.venv/
+python/.venv/
