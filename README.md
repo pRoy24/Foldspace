@@ -77,6 +77,7 @@ You need to provision a SamsarOne API key and request X402 API credentials from 
 | `AGENTVERSE_DEFAULT_AGENT_TYPE` | Default agent type (`mailbox`, `proxy`, or `custom`) applied when the request omits `agentType`. |
 | `AGENTVERSE_DEFAULT_PREFIX` | Default registration prefix (`agent` or `test-agent`). |
 | `AGENTVERSE_DEFAULT_ENDPOINT` | Default callback endpoint included in registration payloads when `endpoint` is omitted. |
+| `AGENTVERSE_CHAT_AGENT_ID` | Agent identifier that should receive chat updates about payment status. |
 
 Once credentials are configured you can deploy your API as an Agentverse agent via:
 

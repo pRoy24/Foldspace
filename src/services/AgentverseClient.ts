@@ -18,6 +18,11 @@ interface AgentverseApiRegistrationRequest {
   prefix?: AgentverseAgentPrefix;
 }
 
+interface AgentverseChatMessageRequest {
+  message: string;
+  metadata?: Record<string, unknown>;
+}
+
 export interface AgentverseClientOptions extends AgentverseConfigOptions {}
 
 export class AgentverseClient {
@@ -118,5 +123,31 @@ export class AgentverseClient {
 
     return this.parseJson<AgentverseRegistrationResponse>(response);
   }
-}
 
+  async sendChatMessage(
+    agentId: string,
+    message: string,
+    metadata?: Record<string, unknown>,
+    signal?: AbortSignal
+  ): Promise<void> {
+    if (!agentId) {
+      throw new Error("Agentverse chat message requires a target agent ID.");
+    }
+    if (!message || message.trim().length === 0) {
+      throw new Error("Agentverse chat message cannot be empty.");
+    }
+
+    const payload: AgentverseChatMessageRequest = metadata ? { message, metadata } : { message };
+    const response = await fetch(this.buildUrl(`/v1/agents/${encodeURIComponent(agentId)}/messages`), {
+      method: "POST",
+      headers: this.buildHeaders(),
+      body: JSON.stringify(payload),
+      signal
+    });
+
+    if (!response.ok) {
+      const errorPayload = await this.parseError(response);
+      throw new Error(`Agentverse chat message failed (${response.status}): ${errorPayload}`);
+    }
+  }
+}

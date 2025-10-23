@@ -21,6 +21,7 @@ export interface EnvConfig {
   agentverseDefaultPrefix?: string;
   agentverseDefaultAgentType?: string;
   agentverseDefaultEndpoint?: string;
+  agentverseChatAgentId?: string;
 }
 
 type EnvKey = keyof EnvConfig;
@@ -45,7 +46,8 @@ const ENV_VAR_NAMES: Record<EnvKey, string> = {
   agentverseApiKey: "AGENTVERSE_API_KEY",
   agentverseDefaultPrefix: "AGENTVERSE_DEFAULT_PREFIX",
   agentverseDefaultAgentType: "AGENTVERSE_DEFAULT_AGENT_TYPE",
-  agentverseDefaultEndpoint: "AGENTVERSE_DEFAULT_ENDPOINT"
+  agentverseDefaultEndpoint: "AGENTVERSE_DEFAULT_ENDPOINT",
+  agentverseChatAgentId: "AGENTVERSE_CHAT_AGENT_ID"
 };
 
 let isLoaded = false;
@@ -79,7 +81,8 @@ export const env: EnvConfig = {
   agentverseApiKey: process.env[ENV_VAR_NAMES.agentverseApiKey],
   agentverseDefaultPrefix: process.env[ENV_VAR_NAMES.agentverseDefaultPrefix],
   agentverseDefaultAgentType: process.env[ENV_VAR_NAMES.agentverseDefaultAgentType],
-  agentverseDefaultEndpoint: process.env[ENV_VAR_NAMES.agentverseDefaultEndpoint]
+  agentverseDefaultEndpoint: process.env[ENV_VAR_NAMES.agentverseDefaultEndpoint],
+  agentverseChatAgentId: process.env[ENV_VAR_NAMES.agentverseChatAgentId]
 };
 
 export function requireEnvValue(key: EnvKey): string {
