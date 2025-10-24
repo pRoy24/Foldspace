@@ -7,6 +7,9 @@ import type {
   PaymentRequirements,
   SettleResponse,
   VerifyResponse,
+  ChatProtocolContent,
+  ChatProtocolEnvelope,
+  ChatProtocolMessage,
   T2VAspectRatio,
   T2VCreateVideoInput,
   T2VTone,
@@ -167,6 +170,13 @@ function createChatRoute(
   agentverseChatAgentId: string | undefined
 ): void {
 
+  interface ParsedChatProtocol {
+    envelope: ChatProtocolEnvelope;
+    message?: ChatProtocolMessage;
+    payloadJson?: unknown;
+    payloadText?: string;
+  }
+
   interface NormalizedChatPayload {
     msgId: string;
     timestamp?: string;
@@ -175,6 +185,7 @@ function createChatRoute(
     sender?: string;
     metadataStrings: Record<string, string>;
     hasRecognizedContent: boolean;
+    chatProtocol?: ParsedChatProtocol;
   }
 
   const safeStringify = (value: unknown): string | undefined => {
@@ -191,42 +202,203 @@ function createChatRoute(
     }
   };
 
-  const normalizeChatPayload = (body: ChatRequestBody): NormalizedChatPayload => {
+  const isChatProtocolMessage = (value: unknown): value is ChatProtocolMessage => {
+    if (!isStringRecord(value)) {
+      return false;
+    }
+    if (typeof value.msg_id !== "string" || value.msg_id.trim().length === 0) {
+      return false;
+    }
+    if (value.content !== undefined && !Array.isArray(value.content)) {
+      return false;
+    }
+    if (value.timestamp !== undefined && typeof value.timestamp !== "string") {
+      return false;
+    }
+    return true;
+  };
+
+  const parseChatProtocolEnvelope = (raw: unknown): ParsedChatProtocol | undefined => {
+    if (!isStringRecord(raw)) {
+      return undefined;
+    }
+
+    const {
+      version,
+      sender,
+      target,
+      session,
+      schema_digest: schemaDigest,
+      protocol_digest: protocolDigest,
+      payload,
+      expires,
+      nonce,
+      signature
+    } = raw;
+
+    if (
+      typeof version !== "number" ||
+      typeof sender !== "string" ||
+      typeof target !== "string" ||
+      typeof session !== "string" ||
+      typeof schemaDigest !== "string"
+    ) {
+      return undefined;
+    }
+
+    const envelope: ChatProtocolEnvelope = {
+      version,
+      sender,
+      target,
+      session,
+      schema_digest: schemaDigest,
+      protocol_digest: typeof protocolDigest === "string" ? protocolDigest : undefined,
+      payload: typeof payload === "string" ? payload : undefined,
+      expires: typeof expires === "number" ? expires : undefined,
+      nonce: typeof nonce === "number" ? nonce : undefined,
+      signature: typeof signature === "string" ? signature : undefined
+    };
+
+    let payloadText: string | undefined;
+    if (envelope.payload) {
+      try {
+        payloadText = Buffer.from(envelope.payload, "base64").toString("utf8");
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn(`[Chat] Failed to decode chat protocol payload: ${message}`);
+      }
+    }
+
+    let payloadJson: unknown;
+    if (payloadText) {
+      try {
+        payloadJson = JSON.parse(payloadText);
+      } catch {
+        // payload is not JSON; ignore and fall back to the raw text preview.
+      }
+    }
+
+    const message = isChatProtocolMessage(payloadJson) ? payloadJson : undefined;
+
+    return {
+      envelope,
+      message,
+      payloadJson,
+      payloadText
+    };
+  };
+
+  const normalizeChatPayload = (raw: unknown): NormalizedChatPayload => {
     const fallbackMsgId = randomUUID();
     const initial: NormalizedChatPayload = {
-      msgId: typeof body.msg_id === "string" && body.msg_id.trim().length > 0
-        ? body.msg_id
-        : typeof body.msgId === "string" && body.msgId.trim().length > 0
-          ? body.msgId
-          : fallbackMsgId,
-      timestamp: typeof body.timestamp === "string" ? body.timestamp : undefined,
+      msgId: fallbackMsgId,
+      timestamp: undefined,
       text: "",
       trimmedText: "",
-      sender: typeof body.sender === "string" && body.sender.trim().length > 0 ? body.sender.trim() : undefined,
+      sender: undefined,
       metadataStrings: {},
       hasRecognizedContent: false
     };
 
-    const directMessage = safeStringify(body.message);
+    const chatProtocol = parseChatProtocolEnvelope(raw);
+    if (chatProtocol) {
+      const message = chatProtocol.message;
+      const textParts: string[] = [];
+      const metadataStrings: Record<string, string> = {};
+      let senderFromMetadata: string | undefined;
+
+      const contentArray = Array.isArray(message?.content) ? (message?.content as ChatProtocolContent[]) : [];
+      for (const item of contentArray) {
+        const type = typeof item.type === "string" ? item.type : undefined;
+        if (type === "text") {
+          const contentText = typeof item.text === "string" ? item.text : undefined;
+          if (contentText) {
+            textParts.push(contentText);
+          }
+          continue;
+        }
+        if (type === "metadata") {
+          const metadata = isStringRecord(item.metadata) ? item.metadata : undefined;
+          if (!metadata) {
+            continue;
+          }
+          for (const [key, value] of Object.entries(metadata)) {
+            if (typeof value === "string") {
+              metadataStrings[`metadata_${key}`] = value;
+              if (key === "sender" && !senderFromMetadata) {
+                senderFromMetadata = value.trim();
+              }
+            } else {
+              const serialized = safeStringify(value);
+              if (serialized !== undefined) {
+                metadataStrings[`metadata_${key}`] = serialized;
+              }
+            }
+          }
+        }
+      }
+
+      const combinedText = textParts.join("\n");
+      const trimmedCombined = combinedText.trim();
+      const resolvedMsgId = typeof message?.msg_id === "string" && message.msg_id.trim().length > 0
+        ? message.msg_id
+        : fallbackMsgId;
+
+      return {
+        msgId: resolvedMsgId,
+        timestamp: typeof message?.timestamp === "string" ? message.timestamp : undefined,
+        text: combinedText,
+        trimmedText: trimmedCombined,
+        sender: senderFromMetadata ?? chatProtocol.envelope.sender,
+        metadataStrings,
+        hasRecognizedContent:
+          trimmedCombined.length > 0 ||
+          Object.keys(metadataStrings).length > 0 ||
+          (chatProtocol.payloadText ? chatProtocol.payloadText.trim().length > 0 : false),
+        chatProtocol
+      };
+    }
+
+    const body = isStringRecord(raw) ? (raw as Partial<ChatRequestBody>) : undefined;
+    const directMessage = safeStringify(body?.message);
     if (directMessage !== undefined) {
       const trimmedDirect = directMessage.trim();
+      const msgIdFromBody = typeof body?.msg_id === "string" && body.msg_id.trim().length > 0
+        ? body.msg_id
+        : typeof body?.msgId === "string" && body.msgId.trim().length > 0
+          ? body.msgId
+          : undefined;
       return {
         ...initial,
+        msgId: msgIdFromBody ?? fallbackMsgId,
+        timestamp: typeof body?.timestamp === "string" ? body.timestamp : undefined,
+        sender: typeof body?.sender === "string" && body.sender.trim().length > 0 ? body.sender.trim() : undefined,
         text: directMessage,
         trimmedText: trimmedDirect,
         hasRecognizedContent: true
       };
     }
 
-    if (!Array.isArray(body.content)) {
-      return initial;
+    const bodyContent = Array.isArray(body?.content) ? body.content : undefined;
+    if (!bodyContent) {
+      const msgIdFromBody = typeof body?.msg_id === "string" && body.msg_id.trim().length > 0
+        ? body.msg_id
+        : typeof body?.msgId === "string" && body.msgId.trim().length > 0
+          ? body.msgId
+          : undefined;
+      return {
+        ...initial,
+        msgId: msgIdFromBody ?? fallbackMsgId,
+        timestamp: typeof body?.timestamp === "string" ? body.timestamp : undefined,
+        sender: typeof body?.sender === "string" && body.sender.trim().length > 0 ? body.sender.trim() : undefined
+      };
     }
 
     const textParts: string[] = [];
     const metadataStrings: Record<string, string> = {};
     let senderFromMetadata: string | undefined;
 
-    for (const item of body.content) {
+    for (const item of bodyContent ?? []) {
       if (!isStringRecord(item)) {
         continue;
       }
@@ -254,13 +426,19 @@ function createChatRoute(
 
     const combinedText = textParts.join("\n");
     const trimmedCombined = combinedText.trim();
+    const msgIdFromBody = typeof body?.msg_id === "string" && body.msg_id.trim().length > 0
+      ? body.msg_id
+      : typeof body?.msgId === "string" && body.msgId.trim().length > 0
+        ? body.msgId
+        : undefined;
+    const senderFromBody = typeof body?.sender === "string" && body.sender.trim().length > 0 ? body.sender.trim() : undefined;
 
     return {
-      msgId: initial.msgId,
-      timestamp: initial.timestamp,
+      msgId: msgIdFromBody ?? fallbackMsgId,
+      timestamp: typeof body?.timestamp === "string" ? body.timestamp : undefined,
       text: combinedText,
       trimmedText: trimmedCombined,
-      sender: senderFromMetadata ?? initial.sender,
+      sender: senderFromMetadata ?? senderFromBody,
       metadataStrings,
       hasRecognizedContent: textParts.length > 0 || Object.keys(metadataStrings).length > 0
     };
@@ -292,8 +470,15 @@ function createChatRoute(
       console.log(`[Chat] Header snapshot: ${JSON.stringify(headerSnapshot)}`);
       console.log(`[Chat] Body preview: ${rawBodyPreview ?? "undefined"}`);
 
-      const normalized = normalizeChatPayload((req.body ?? {}) as ChatRequestBody);
-      const { sender, text, trimmedText, msgId, metadataStrings, hasRecognizedContent } = normalized;
+      const normalized = normalizeChatPayload(req.body ?? {});
+      const { sender, text, trimmedText, msgId, metadataStrings, hasRecognizedContent, chatProtocol } = normalized;
+      if (chatProtocol) {
+        const sessionId = chatProtocol.envelope.session;
+        const schemaDigest = chatProtocol.envelope.schema_digest;
+        const messageId = chatProtocol.message?.msg_id;
+        console.log(`[Chat] Detected chat protocol envelope: session=${sessionId}, schema=${schemaDigest}${messageId ? `, msg_id=${messageId}` : ""}`);
+      }
+
       const senderLabel = sender ? ` from ${sender}` : "";
 
       if (trimmedText.length > 0) {
@@ -320,6 +505,28 @@ function createChatRoute(
         ...metadataStrings,
         placeholder_response: placeholderReply
       };
+      if (chatProtocol) {
+        ackMetadata.chat_protocol = "true";
+        ackMetadata.chat_protocol_sender = chatProtocol.envelope.sender;
+        ackMetadata.chat_protocol_session = chatProtocol.envelope.session;
+        ackMetadata.chat_protocol_schema = chatProtocol.envelope.schema_digest;
+        if (chatProtocol.envelope.protocol_digest) {
+          ackMetadata.chat_protocol_protocol = chatProtocol.envelope.protocol_digest;
+        }
+        if (chatProtocol.message?.msg_id) {
+          ackMetadata.chat_protocol_msg_id = chatProtocol.message.msg_id;
+        }
+        if (chatProtocol.message?.timestamp) {
+          ackMetadata.chat_protocol_timestamp = chatProtocol.message.timestamp;
+        }
+        if (!trimmedText.length && chatProtocol.payloadText) {
+          const PAYLOAD_PREVIEW_MAX = 240;
+          const preview = chatProtocol.payloadText.length > PAYLOAD_PREVIEW_MAX
+            ? `${chatProtocol.payloadText.slice(0, PAYLOAD_PREVIEW_MAX)}…`
+            : chatProtocol.payloadText;
+          ackMetadata.chat_protocol_payload_preview = preview;
+        }
+      }
       if (sender) {
         ackMetadata.sender = sender;
       }
