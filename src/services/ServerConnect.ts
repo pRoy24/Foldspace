@@ -869,6 +869,11 @@ export function connectToWebService(options: WebServiceConnectOptions = {}): Rou
     `[Init] Authorization required for facilitator routes: ${options.requireAuthorization ?? true}`
   );
 
+  router.use((req, _res, next) => {
+    console.log(`[HTTP] ${req.method} ${req.originalUrl} from ${req.ip ?? "unknown ip"}`);
+    next();
+  });
+
   router.use(express.json());
 
   createRootRoute(router);
