@@ -155,20 +155,97 @@ function createStatusRoute(router: Router): void {
   );
 }
 
-function createChatRoute(router: Router): void {
+function createChatRoute(
+  router: Router,
+  agentverse: AgentverseClient | undefined,
+  agentverseChatAgentId: string | undefined
+): void {
   router.post(
     "/chat",
     asyncHandler(async (req, res) => {
       const { sender, message } = (req.body ?? {}) as ChatRequestBody;
-      const text = typeof message === "string" ? message : JSON.stringify(message);
+      const text = typeof message === "string"
+        ? message
+        : message !== undefined
+          ? (() => {
+              try {
+                return JSON.stringify(message);
+              } catch {
+                return String(message);
+              }
+            })()
+          : "";
+      const trimmedText = text.trim();
+      const senderLabel = typeof sender === "string" && sender.trim().length > 0 ? ` from ${sender}` : "";
 
-      if (text && text.length > 0) {
-        console.log(`Received chat message${sender ? ` from ${sender}` : ""}: ${text}`);
+      if (trimmedText.length > 0) {
+        console.log(`Received chat message${senderLabel}: ${text}`);
       } else {
-        console.log(`Received chat request${sender ? ` from ${sender}` : ""} with no message payload.`);
+        console.log(`Received chat request${senderLabel} with no message payload.`);
+        res.status(400).json({
+          version: "ASI-1",
+          status: "error",
+          error: {
+            code: "missing_message",
+            message: "Chat requests must include a non-empty 'message' field."
+          },
+          responses: []
+        });
+        return;
       }
 
-      res.json({ message: "Thanks for the message!" });
+      if (!agentverse || !agentverseChatAgentId) {
+        res.status(503).json({
+          version: "ASI-1",
+          status: "error",
+          error: {
+            code: "agentverse_unavailable",
+            message: "Agentverse chat forwarding is not configured."
+          },
+          responses: []
+        });
+        return;
+      }
+
+      const metadata: Record<string, unknown> = {};
+      if (typeof sender === "string" && sender.trim().length > 0) {
+        metadata.sender = sender;
+      }
+      if (typeof message !== "string") {
+        metadata.originalMessage = message;
+      }
+
+      try {
+        await agentverse.sendChatMessage(
+          agentverseChatAgentId,
+          trimmedText,
+          Object.keys(metadata).length > 0 ? metadata : undefined
+        );
+      } catch (error) {
+        const messageText = error instanceof Error ? error.message : String(error);
+        console.error("Failed to forward chat message to Agentverse:", error);
+        res.status(502).json({
+          version: "ASI-1",
+          status: "error",
+          error: {
+            code: "agentverse_forward_failed",
+            message: messageText
+          },
+          responses: []
+        });
+        return;
+      }
+
+      res.json({
+        version: "ASI-1",
+        status: "success",
+        responses: [
+          {
+            type: "text",
+            text: "Message relayed to Agentverse. We'll keep you posted."
+          }
+        ]
+      });
     })
   );
 }
@@ -454,7 +531,7 @@ export function connectToWebService(options: WebServiceConnectOptions = {}): Rou
   createRootRoute(router);
   createHealthRoute(router);
   createStatusRoute(router);
-  createChatRoute(router);
+  createChatRoute(router, agentverse, chatAgentId);
   createPricingRoute(router, sessionService);
   createSessionRoutes(router, sessionService);
 
