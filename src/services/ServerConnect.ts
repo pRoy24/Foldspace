@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import express, { Router, type ErrorRequestHandler, type NextFunction, type Request, type Response } from "express";
 import type {
   ListDiscoveryResourcesRequest,
@@ -111,6 +113,10 @@ interface PaymentConfirmationRequestBody {
 interface ChatRequestBody {
   sender?: string;
   message?: unknown;
+  msg_id?: string;
+  msgId?: string;
+  timestamp?: string;
+  content?: unknown;
 }
 
 const T2V_TONE_VALUES: readonly T2VTone[] = ["grounded", "cinematic"] as const;
@@ -160,91 +166,167 @@ function createChatRoute(
   agentverse: AgentverseClient | undefined,
   agentverseChatAgentId: string | undefined
 ): void {
+
+  interface NormalizedChatPayload {
+    msgId: string;
+    timestamp?: string;
+    text: string;
+    trimmedText: string;
+    sender?: string;
+    metadataStrings: Record<string, string>;
+    hasRecognizedContent: boolean;
+  }
+
+  const safeStringify = (value: unknown): string | undefined => {
+    if (value === undefined) {
+      return undefined;
+    }
+    if (typeof value === "string") {
+      return value;
+    }
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  };
+
+  const normalizeChatPayload = (body: ChatRequestBody): NormalizedChatPayload => {
+    const fallbackMsgId = randomUUID();
+    const initial: NormalizedChatPayload = {
+      msgId: typeof body.msg_id === "string" && body.msg_id.trim().length > 0
+        ? body.msg_id
+        : typeof body.msgId === "string" && body.msgId.trim().length > 0
+          ? body.msgId
+          : fallbackMsgId,
+      timestamp: typeof body.timestamp === "string" ? body.timestamp : undefined,
+      text: "",
+      trimmedText: "",
+      sender: typeof body.sender === "string" && body.sender.trim().length > 0 ? body.sender.trim() : undefined,
+      metadataStrings: {},
+      hasRecognizedContent: false
+    };
+
+    const directMessage = safeStringify(body.message);
+    if (directMessage !== undefined) {
+      const trimmedDirect = directMessage.trim();
+      return {
+        ...initial,
+        text: directMessage,
+        trimmedText: trimmedDirect,
+        hasRecognizedContent: true
+      };
+    }
+
+    if (!Array.isArray(body.content)) {
+      return initial;
+    }
+
+    const textParts: string[] = [];
+    const metadataStrings: Record<string, string> = {};
+    let senderFromMetadata: string | undefined;
+
+    for (const item of body.content) {
+      if (!isStringRecord(item)) {
+        continue;
+      }
+      const type = typeof item.type === "string" ? item.type : undefined;
+      if (type === "text" && typeof item.text === "string") {
+        textParts.push(item.text);
+        continue;
+      }
+      if (type === "metadata" && isStringRecord(item.metadata)) {
+        for (const [key, value] of Object.entries(item.metadata)) {
+          if (typeof value === "string") {
+            metadataStrings[`metadata_${key}`] = value;
+            if (key === "sender" && !senderFromMetadata) {
+              senderFromMetadata = value.trim();
+            }
+          } else {
+            const serialized = safeStringify(value);
+            if (serialized !== undefined) {
+              metadataStrings[`metadata_${key}`] = serialized;
+            }
+          }
+        }
+      }
+    }
+
+    const combinedText = textParts.join("\n");
+    const trimmedCombined = combinedText.trim();
+
+    return {
+      msgId: initial.msgId,
+      timestamp: initial.timestamp,
+      text: combinedText,
+      trimmedText: trimmedCombined,
+      sender: senderFromMetadata ?? initial.sender,
+      metadataStrings,
+      hasRecognizedContent: textParts.length > 0 || Object.keys(metadataStrings).length > 0
+    };
+  };
+
   router.post(
     "/chat",
     asyncHandler(async (req, res) => {
-      const { sender, message } = (req.body ?? {}) as ChatRequestBody;
-      const text = typeof message === "string"
-        ? message
-        : message !== undefined
-          ? (() => {
-              try {
-                return JSON.stringify(message);
-              } catch {
-                return String(message);
-              }
-            })()
-          : "";
-      const trimmedText = text.trim();
-      const senderLabel = typeof sender === "string" && sender.trim().length > 0 ? ` from ${sender}` : "";
+      const normalized = normalizeChatPayload((req.body ?? {}) as ChatRequestBody);
+      const { sender, text, trimmedText, msgId, metadataStrings, hasRecognizedContent } = normalized;
+      const senderLabel = sender ? ` from ${sender}` : "";
 
       if (trimmedText.length > 0) {
-        console.log(`Received chat message${senderLabel}: ${text}`);
+        console.log(`Received chat message${senderLabel}: ${trimmedText}`);
+      } else if (hasRecognizedContent) {
+        console.log(`Received chat message${senderLabel} without text content. Metadata keys: ${Object.keys(metadataStrings).join(", ") || "none"}.`);
       } else {
-        console.log(`Received chat request${senderLabel} with no message payload.`);
-        res.status(400).json({
-          version: "ASI-1",
-          status: "error",
-          error: {
-            code: "missing_message",
-            message: "Chat requests must include a non-empty 'message' field."
-          },
-          responses: []
-        });
-        return;
+        console.log(`Received chat request${senderLabel} with an unrecognized payload shape.`);
       }
 
-      if (!agentverse || !agentverseChatAgentId) {
-        res.status(503).json({
-          version: "ASI-1",
-          status: "error",
-          error: {
-            code: "agentverse_unavailable",
-            message: "Agentverse chat forwarding is not configured."
-          },
-          responses: []
-        });
-        return;
-      }
+      const placeholderReply = trimmedText.length > 0
+        ? `Thanks for your message! This placeholder agent recorded: "${trimmedText}". We'll respond with full functionality soon.`
+        : "Thanks for reaching out! This placeholder agent does not have an answer yet, but your request was logged.";
 
-      const metadata: Record<string, unknown> = {};
-      if (typeof sender === "string" && sender.trim().length > 0) {
-        metadata.sender = sender;
+      const agentverseMetadata: Record<string, unknown> = {
+        sender,
+        originalMessage: trimmedText.length > 0 ? trimmedText : undefined,
+        rawMessage: trimmedText.length === 0 && text.length > 0 ? text : undefined,
+        receivedAt: new Date().toISOString(),
+        placeholder: true
+      };
+
+      const ackMetadata: Record<string, string> = {
+        ...metadataStrings,
+        placeholder_response: placeholderReply
+      };
+      if (sender) {
+        ackMetadata.sender = sender;
       }
-      if (typeof message !== "string") {
-        metadata.originalMessage = message;
+      if (trimmedText.length === 0) {
+        ackMetadata.placeholder_reason = hasRecognizedContent ? "no_text_content" : "unrecognized_payload";
       }
 
       try {
-        await agentverse.sendChatMessage(
-          agentverseChatAgentId,
-          trimmedText,
-          Object.keys(metadata).length > 0 ? metadata : undefined
-        );
+        if (agentverse && agentverseChatAgentId) {
+          const compactMetadata = Object.fromEntries(
+            Object.entries(agentverseMetadata).filter(([, value]) => value !== undefined)
+          );
+          await agentverse.sendChatMessage(agentverseChatAgentId, placeholderReply, compactMetadata);
+          ackMetadata.forwarded = "true";
+        } else {
+          ackMetadata.forwarded = "false";
+          ackMetadata.forwarded_reason = "agentverse_not_configured";
+        }
       } catch (error) {
         const messageText = error instanceof Error ? error.message : String(error);
         console.error("Failed to forward chat message to Agentverse:", error);
-        res.status(502).json({
-          version: "ASI-1",
-          status: "error",
-          error: {
-            code: "agentverse_forward_failed",
-            message: messageText
-          },
-          responses: []
-        });
-        return;
+        ackMetadata.forwarded = "false";
+        ackMetadata.forwarded_reason = "agentverse_forward_failed";
+        ackMetadata.forwarded_error = messageText;
       }
 
       res.json({
-        version: "ASI-1",
-        status: "success",
-        responses: [
-          {
-            type: "text",
-            text: "Message relayed to Agentverse. We'll keep you posted."
-          }
-        ]
+        acknowledged_msg_id: msgId,
+        timestamp: new Date().toISOString(),
+        metadata: ackMetadata
       });
     })
   );
