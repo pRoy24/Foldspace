@@ -269,6 +269,29 @@ function createChatRoute(
   router.post(
     "/chat",
     asyncHandler(async (req, res) => {
+      const receivedAt = new Date().toISOString();
+      const headerSnapshot = {
+        "content-type": req.headers["content-type"],
+        "content-length": req.headers["content-length"],
+        "user-agent": req.headers["user-agent"],
+        "x-forwarded-for": req.headers["x-forwarded-for"],
+        "x-request-id": req.headers["x-request-id"]
+      };
+      const rawBodyPreview = (() => {
+        const serialized = safeStringify(req.body);
+        if (!serialized) {
+          return serialized;
+        }
+        const MAX_PREVIEW_LENGTH = 1000;
+        return serialized.length > MAX_PREVIEW_LENGTH
+          ? `${serialized.slice(0, MAX_PREVIEW_LENGTH)}…`
+          : serialized;
+      })();
+
+      console.log(`[Chat] POST /chat invoked at ${receivedAt} from ${req.ip ?? "unknown ip"}`);
+      console.log(`[Chat] Header snapshot: ${JSON.stringify(headerSnapshot)}`);
+      console.log(`[Chat] Body preview: ${rawBodyPreview ?? "undefined"}`);
+
       const normalized = normalizeChatPayload((req.body ?? {}) as ChatRequestBody);
       const { sender, text, trimmedText, msgId, metadataStrings, hasRecognizedContent } = normalized;
       const senderLabel = sender ? ` from ${sender}` : "";
