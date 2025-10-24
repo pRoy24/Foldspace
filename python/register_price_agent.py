@@ -15,6 +15,8 @@ from uagents_core.utils.registration import (
 
 REGISTRATION_NAME = "T2V Pricing"
 REGISTRATION_ENDPOINT = "http://65.109.163.21/request_pricing"
+DESTINATION_WALLET = "0x182596E23D6d3bDCA7d2c7ab2089C9f625583352"
+DESTINATION_CHAIN = "base-seplolia"
 
 
 def _get_required_env(name: str) -> str:
@@ -38,6 +40,10 @@ def main() -> int:
             REGISTRATION_NAME,
             REGISTRATION_ENDPOINT,
             active=True,
+            metadata={
+                "destination_wallet": DESTINATION_WALLET,
+                "destination_chain": DESTINATION_CHAIN,
+            },
             credentials=RegistrationRequestCredentials(
                 agentverse_api_key=_get_required_env("AGENTVERSE_KEY"),
                 agent_seed_phrase=_get_required_env("AGENT_SEED_PHRASE"),
