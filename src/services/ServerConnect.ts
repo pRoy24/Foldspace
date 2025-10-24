@@ -446,6 +446,18 @@ function createChatRoute(
 
   router.post(
     "/chat",
+    (req, _res, next) => {
+      const entrySnapshot = {
+        method: req.method,
+        originalUrl: req.originalUrl,
+        ip: req.ip,
+        contentType: req.headers["content-type"],
+        contentLength: req.headers["content-length"],
+        authorization: req.headers.authorization ? "present" : "missing"
+      };
+      console.log(`[Chat] Entry middleware triggered: ${JSON.stringify(entrySnapshot)}`);
+      next();
+    },
     asyncHandler(async (req, res) => {
       const receivedAt = new Date().toISOString();
       const headerSnapshot = {
