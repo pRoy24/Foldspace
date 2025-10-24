@@ -472,6 +472,15 @@ function createChatRoute(
 
       const normalized = normalizeChatPayload(req.body ?? {});
       const { sender, text, trimmedText, msgId, metadataStrings, hasRecognizedContent, chatProtocol } = normalized;
+      const normalizedSummary = {
+        msgId,
+        sender,
+        trimmedTextLength: trimmedText.length,
+        metadataKeys: Object.keys(metadataStrings),
+        chatProtocol: Boolean(chatProtocol),
+        rawKeys: isStringRecord(req.body) ? Object.keys(req.body as Record<string, unknown>) : undefined
+      };
+      console.log(`[Chat] Normalized payload summary: ${JSON.stringify(normalizedSummary)}`);
       if (chatProtocol) {
         const sessionId = chatProtocol.envelope.session;
         const schemaDigest = chatProtocol.envelope.schema_digest;
@@ -486,7 +495,9 @@ function createChatRoute(
       } else if (hasRecognizedContent) {
         console.log(`Received chat message${senderLabel} without text content. Metadata keys: ${Object.keys(metadataStrings).join(", ") || "none"}.`);
       } else {
-        console.log(`Received chat request${senderLabel} with an unrecognized payload shape.`);
+        const rawKeys = isStringRecord(req.body) ? Object.keys(req.body as Record<string, unknown>) : [];
+        console.log(`Received chat request${senderLabel} with an unrecognized payload shape. Raw keys: ${rawKeys.join(", ") || "none"}.`);
+        console.log("Expected either a Chat Protocol envelope payload or a JSON body containing { message, content[] }.");
       }
 
       const placeholderReply = trimmedText.length > 0
@@ -837,6 +848,14 @@ export function connectToWebService(options: WebServiceConnectOptions = {}): Rou
   const facilitator = options.facilitatorService ?? new X402FacilitatorService();
   const chatAgentId = options.agentverseChatAgentId ?? env.agentverseChatAgentId;
   const sessionService = resolveSessionService(options.sessionService, agentverse, chatAgentId);
+
+  console.log(
+    `[Init] Agentverse client ${agentverse ? "configured" : "not configured"}.` +
+    ` Chat agent id: ${chatAgentId ?? "unset"}`
+  );
+  console.log(
+    `[Init] Authorization required for facilitator routes: ${options.requireAuthorization ?? true}`
+  );
 
   router.use(express.json());
 
