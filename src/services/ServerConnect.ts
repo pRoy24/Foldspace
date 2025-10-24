@@ -265,8 +265,13 @@ function extractPricingRequestBody(req: Request): PricingRequestBody {
   return (req.body ?? {}) as PricingRequestBody;
 }
 
-function createPricingRoute(router: Router, sessionService: SessionService): void {
+function createPricingRoute(router: Router, sessionService: SessionService | undefined): void {
   const handler = asyncHandler(async (req, res) => {
+    if (!sessionService) {
+      res.status(503).json({ error: "T2V session service is not configured." });
+      return;
+    }
+
     if (req.method === "GET") {
       const { input: rawInput } = req.query as Record<string, unknown>;
       if (rawInput === undefined) {
@@ -314,10 +319,15 @@ function createPricingRoute(router: Router, sessionService: SessionService): voi
   router.post("/request_pricing", handler);
 }
 
-function createSessionRoutes(router: Router, sessionService: SessionService): void {
+function createSessionRoutes(router: Router, sessionService: SessionService | undefined): void {
   router.get(
     "/sessions/:sessionId",
     asyncHandler(async (req, res) => {
+      if (!sessionService) {
+        res.status(503).json({ error: "T2V session service is not configured." });
+        return;
+      }
+
       const sessionId = req.params.sessionId;
       const session = await sessionService.getSession(sessionId);
       if (!session) {
@@ -331,6 +341,11 @@ function createSessionRoutes(router: Router, sessionService: SessionService): vo
   router.post(
     "/sessions/:sessionId/payment",
     asyncHandler(async (req, res) => {
+      if (!sessionService) {
+        res.status(503).json({ error: "T2V session service is not configured." });
+        return;
+      }
+
       const sessionId = req.params.sessionId;
       const body = (req.body ?? {}) as PaymentConfirmationRequestBody;
       if (!body.payload || !body.requirements) {
@@ -432,12 +447,7 @@ export function connectToWebService(options: WebServiceConnectOptions = {}): Rou
   const agentverse = resolveAgentverseClient(options.agentverseClient);
   const facilitator = options.facilitatorService ?? new X402FacilitatorService();
   const chatAgentId = options.agentverseChatAgentId ?? env.agentverseChatAgentId;
-  const sessionService =
-    options.sessionService ??
-    new SessionService({
-      agentverseClient: agentverse,
-      agentverseAgentId: chatAgentId
-    });
+  const sessionService = resolveSessionService(options.sessionService, agentverse, chatAgentId);
 
   router.use(express.json());
 
@@ -471,6 +481,27 @@ function resolveAgentverseClient(client?: AgentverseClient): AgentverseClient | 
     if (process.env.AGENTVERSE_API_KEY) {
       throw error;
     }
+    return undefined;
+  }
+}
+
+function resolveSessionService(
+  service: SessionService | undefined,
+  agentverse: AgentverseClient | undefined,
+  agentverseAgentId: string | undefined
+): SessionService | undefined {
+  if (service) {
+    return service;
+  }
+
+  try {
+    return new SessionService({
+      agentverseClient: agentverse,
+      agentverseAgentId
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`Skipping T2V session service initialization: ${message}`);
     return undefined;
   }
 }
