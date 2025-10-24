@@ -19,10 +19,12 @@ Foldspace is (WIP) EthOnline 2025 submission that wires Coinbase's X402 payment 
   Bridges to the Coinbase X402 facilitator or performs local on-chain verification/settlement with a signer key.
 - **`src/services/T2VApiClient.ts`**  
   Minimal HTTP client for `POST /create` and `GET /status` SamsarOne endpoints.
+- **`src/services/SessionService.ts`**  
+  Owns session lifecycle: writes state updates to Agentverse chat metadata, hands off paid submissions to SamsarOne, and polls status until completion.
 - **`src/services/AgentverseClient.ts`**  
   Registers agents with Agentverse `POST /v1/agents`.
 - **`src/services/ServerConnect.ts`** & **`src/server.ts`**  
-  Express router exposing `/facilitator/*` and `/payments/*` routes, optionally guarded by an `Authorization` header.
+  Express router exposing `/request_pricing`, session management, and facilitator helper routes, optionally guarded by an `Authorization` header.
 - **`src/config`**  
   Builders for facilitator, T2V API, payment, and Agentverse configuration sourced from environment variables.
 
@@ -133,6 +135,10 @@ All routes are mounted at `/` by `src/server.ts` and require a Bearer `Authoriza
 | --- | --- |
 | `GET /` | Simple readiness message (`Foldspace Protocol proxy is up.`). |
 | `GET /health` | Public health check returning `{ status: "ok" }`. |
+| `GET /request_pricing?input=` | Convenience variant that accepts a JSON encoded SamsarOne payload via query string and responds with the same 402 envelope as the POST version. |
+| `POST /request_pricing` | Validates the SamsarOne payload, creates a session (`status: payment_pending`), stores the session JSON in Agentverse, and returns a `402 Payment Required` response with quote + payment requirements. |
+| `GET /sessions/:sessionId` | Returns the latest session record so the UI can display status, quote, and SamsarOne metadata. |
+| `POST /sessions/:sessionId/payment` | Called by the Agentverse agent after payment settlement; verifies the payload, triggers the SamsarOne request, flips the session to `creation_pending`, and starts polling for completion. |
 | `POST /facilitator/resources` | Proxies `list` to the facilitator (body: `{ request }`). |
 | `GET /facilitator/supported` | Returns the facilitator-supported payment kinds. |
 | `POST /payments/verify` | Calls facilitator `verify` for provided payload/requirements. |
@@ -140,6 +146,12 @@ All routes are mounted at `/` by `src/server.ts` and require a Bearer `Authoriza
 | `POST /payments/verify/onchain` | Performs local on-chain verification. |
 | `POST /payments/settle/onchain` | Performs local on-chain settlement using the configured signer. |
 | `POST /agentverse/register` | Registers an agent with Agentverse using the configured API credentials. |
+
+The Agentverse-hosted UX follows this sequence:
+1. The user enters a prompt and model selection in the Agentverse UI. The agent calls `POST /request_pricing`, which returns a 402 containing the quote, payment requirement, and `sessionId`.
+2. The UI surfaces the quote plus destination wallet from the response while the session is recorded in Agentverse chat metadata with status `payment_pending`.
+3. Once the user pays, the agent passes the facilitator payload to `POST /sessions/:sessionId/payment`. The service verifies the payment, hits the SamsarOne API, and switches the session to `creation_pending`.
+4. `SessionService` polls SamsarOne for status transitions, posting each update (including completion URL) back into Agentverse so the UI can render live progress and final results.
 
 ---
 

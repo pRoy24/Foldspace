@@ -1,7 +1,4 @@
-
-
 import express, { Router, type ErrorRequestHandler, type NextFunction, type Request, type Response } from "express";
-import { x402Versions } from "x402/types";
 import type {
   ListDiscoveryResourcesRequest,
   PaymentPayload,
@@ -16,9 +13,7 @@ import type {
 } from "../models";
 import {
   T2V_IMAGE_MODELS,
-  T2V_VIDEO_MODELS,
-  T2V_API_BASE_URL,
-  calculateT2VCostBreakdown
+  T2V_VIDEO_MODELS
 } from "../models";
 import {
   type LocalSettlementOptions,
@@ -27,9 +22,8 @@ import {
 } from "./X402FacilitatorService";
 import { AgentverseClient } from "./AgentverseClient";
 import type { AgentverseRegistrationRequest, AgentverseRegistrationResponse } from "../models";
-import { buildT2VPaymentConfig, type T2VPaymentConfig } from "../config/t2v";
 import { env } from "../config/env";
-import { PaymentListenerService, type QuoteSummary } from "./PaymentListenerService";
+import { SessionService, type PaymentConfirmationOptions } from "./SessionService";
 
 export interface WebServiceConnectOptions {
   /**
@@ -45,9 +39,9 @@ export interface WebServiceConnectOptions {
    */
   agentverseClient?: AgentverseClient;
   /**
-   * Service that monitors on-chain payments and dispatches internal follow-up actions.
+   * Service that manages session lifecycle and communicates with SamsarOne.
    */
-  paymentListenerService?: PaymentListenerService;
+  sessionService?: SessionService;
   /**
    * Override for the Agentverse chat agent ID. Defaults to AGENTVERSE_CHAT_AGENT_ID when omitted.
    */
@@ -108,11 +102,19 @@ interface PricingRequestBody {
   input?: unknown;
 }
 
+interface PaymentConfirmationRequestBody {
+  payload?: PaymentPayload;
+  requirements?: PaymentRequirements;
+  options?: PaymentConfirmationOptions;
+}
+
+interface ChatRequestBody {
+  sender?: string;
+  message?: unknown;
+}
+
 const T2V_TONE_VALUES: readonly T2VTone[] = ["grounded", "cinematic"] as const;
 const T2V_ASPECT_RATIO_VALUES: readonly T2VAspectRatio[] = ["9:16", "16:9"] as const;
-const USDC_DECIMALS = 6n;
-const DEFAULT_PAYMENT_DESCRIPTION = "SamsarOne T2V generation";
-const [DEFAULT_X402_VERSION] = x402Versions;
 
 function validateVerifyBody(body: VerifyRequestBody): asserts body is VerifyRequestBodyValidated {
   if (!body.payload || !body.requirements) {
@@ -139,7 +141,34 @@ function createRootRoute(router: Router): void {
   router.get(
     "/",
     asyncHandler(async (_req, res) => {
-      res.json({ message: "Foldspace Protocol proxy is up." });
+      res.json({ message: "Foldspace Protocol chat adapter is running." });
+    })
+  );
+}
+
+function createStatusRoute(router: Router): void {
+  router.get(
+    "/status",
+    asyncHandler(async (_req, res) => {
+      res.json({ status: "OK - Agent is running" });
+    })
+  );
+}
+
+function createChatRoute(router: Router): void {
+  router.post(
+    "/chat",
+    asyncHandler(async (req, res) => {
+      const { sender, message } = (req.body ?? {}) as ChatRequestBody;
+      const text = typeof message === "string" ? message : JSON.stringify(message);
+
+      if (text && text.length > 0) {
+        console.log(`Received chat message${sender ? ` from ${sender}` : ""}: ${text}`);
+      } else {
+        console.log(`Received chat request${sender ? ` from ${sender}` : ""} with no message payload.`);
+      }
+
+      res.json({ message: "Thanks for the message!" });
     })
   );
 }
@@ -214,16 +243,6 @@ function parseCreateVideoInput(body: PricingRequestBody): T2VCreateVideoInput {
   return sanitized;
 }
 
-function formatMinorUnitsToUsdc(minorUnits: bigint): string {
-  const sign = minorUnits < 0n ? "-" : "";
-  const absolute = minorUnits < 0n ? -minorUnits : minorUnits;
-  const base = 10n ** USDC_DECIMALS;
-  const whole = absolute / base;
-  const fraction = absolute % base;
-  const fractionText = fraction.toString().padStart(Number(USDC_DECIMALS), "0");
-  return `${sign}${whole.toString()}.${fractionText}`;
-}
-
 function extractPricingRequestBody(req: Request): PricingRequestBody {
   if (req.method === "GET") {
     const { input: rawInput } = req.query as Record<string, unknown>;
@@ -246,16 +265,7 @@ function extractPricingRequestBody(req: Request): PricingRequestBody {
   return (req.body ?? {}) as PricingRequestBody;
 }
 
-function resolveT2VResource(paymentConfig: T2VPaymentConfig): string {
-  if (paymentConfig.resource) {
-    return paymentConfig.resource;
-  }
-  const baseUrl = env.t2vBaseUrl ?? T2V_API_BASE_URL;
-  const normalizedBase = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
-  return new URL("create", normalizedBase).toString();
-}
-
-function createPricingRoute(router: Router, paymentListener: PaymentListenerService): void {
+function createPricingRoute(router: Router, sessionService: SessionService): void {
   const handler = asyncHandler(async (req, res) => {
     if (req.method === "GET") {
       const { input: rawInput } = req.query as Record<string, unknown>;
@@ -277,43 +287,7 @@ function createPricingRoute(router: Router, paymentListener: PaymentListenerServ
     }
 
     try {
-      const paymentConfig = buildT2VPaymentConfig();
-      const breakdown = calculateT2VCostBreakdown(input);
-      const pricePerCreditMinorUnits = paymentConfig.pricePerCreditMinorUnits;
-      const totalMinorUnits = BigInt(breakdown.totalCredits) * pricePerCreditMinorUnits;
-
-      const quote: QuoteSummary = {
-        asset: paymentConfig.asset,
-        network: paymentConfig.network,
-        totalCredits: breakdown.totalCredits,
-        durationSeconds: breakdown.durationSeconds,
-        imageModel: breakdown.imageModel,
-        videoModel: breakdown.videoModel,
-        rateCreditsPerSecond: breakdown.rateCreditsPerSecond,
-        pricePerCreditMinorUnits: pricePerCreditMinorUnits.toString(),
-        pricePerCreditUsdc: formatMinorUnitsToUsdc(pricePerCreditMinorUnits),
-        totalMinorUnits: totalMinorUnits.toString(),
-        totalUsdc: formatMinorUnitsToUsdc(totalMinorUnits)
-      };
-
-      const requirement: PaymentRequirements = {
-        scheme: "exact",
-        network: paymentConfig.network,
-        maxAmountRequired: quote.totalMinorUnits,
-        resource: resolveT2VResource(paymentConfig),
-        description: paymentConfig.description ?? DEFAULT_PAYMENT_DESCRIPTION,
-        mimeType: paymentConfig.mimeType ?? "application/json",
-        payTo: paymentConfig.payTo,
-        maxTimeoutSeconds: paymentConfig.maxTimeoutSeconds ?? 600,
-        asset: paymentConfig.asset,
-        extra: { ...quote }
-      };
-
-      const registration = await paymentListener.registerPayment({
-        requirement,
-        quote,
-        input
-      });
+      const { session, requirement, quote, x402Version } = await sessionService.createSession(input);
 
       res
         .status(402)
@@ -323,10 +297,12 @@ function createPricingRoute(router: Router, paymentListener: PaymentListenerServ
           "Access-Control-Expose-Headers": "X-PAYMENT-RESPONSE"
         })
         .json({
-          x402Version: DEFAULT_X402_VERSION,
+          x402Version,
           accepts: [requirement],
           quote,
-          paymentSessionId: registration.sessionId
+          sessionId: session.id,
+          sessionStatus: session.status,
+          session
         });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -336,6 +312,43 @@ function createPricingRoute(router: Router, paymentListener: PaymentListenerServ
 
   router.get("/request_pricing", handler);
   router.post("/request_pricing", handler);
+}
+
+function createSessionRoutes(router: Router, sessionService: SessionService): void {
+  router.get(
+    "/sessions/:sessionId",
+    asyncHandler(async (req, res) => {
+      const sessionId = req.params.sessionId;
+      const session = await sessionService.getSession(sessionId);
+      if (!session) {
+        res.status(404).json({ error: `Session ${sessionId} not found.` });
+        return;
+      }
+      res.json({ session });
+    })
+  );
+
+  router.post(
+    "/sessions/:sessionId/payment",
+    asyncHandler(async (req, res) => {
+      const sessionId = req.params.sessionId;
+      const body = (req.body ?? {}) as PaymentConfirmationRequestBody;
+      if (!body.payload || !body.requirements) {
+        res.status(400).json({ error: "Missing payment payload or requirements in request body." });
+        return;
+      }
+
+      try {
+        const session = await sessionService.confirmPayment(sessionId, body.payload, body.requirements, body.options);
+        res.json({ session });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const normalized = message.toLowerCase();
+        const status = normalized.includes("not found") ? 404 : normalized.includes("mismatch") ? 400 : 500;
+        res.status(status).json({ error: message });
+      }
+    })
+  );
 }
 
 function createAuthorizationGuard(router: Router): void {
@@ -419,9 +432,9 @@ export function connectToWebService(options: WebServiceConnectOptions = {}): Rou
   const agentverse = resolveAgentverseClient(options.agentverseClient);
   const facilitator = options.facilitatorService ?? new X402FacilitatorService();
   const chatAgentId = options.agentverseChatAgentId ?? env.agentverseChatAgentId;
-  const paymentListener =
-    options.paymentListenerService ??
-    new PaymentListenerService({
+  const sessionService =
+    options.sessionService ??
+    new SessionService({
       agentverseClient: agentverse,
       agentverseAgentId: chatAgentId
     });
@@ -430,7 +443,10 @@ export function connectToWebService(options: WebServiceConnectOptions = {}): Rou
 
   createRootRoute(router);
   createHealthRoute(router);
-  createPricingRoute(router, paymentListener);
+  createStatusRoute(router);
+  createChatRoute(router);
+  createPricingRoute(router, sessionService);
+  createSessionRoutes(router, sessionService);
 
   if (options.requireAuthorization ?? true) {
     createAuthorizationGuard(router);
