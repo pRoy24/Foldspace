@@ -13,7 +13,15 @@ from uagents_core.identity import Identity
 from uagents_core.utils.messages import parse_envelope, send_message_to_agent
 
 BASE_DIR = Path(__file__).parent
-ENV_FILE = os.getenv("FOLDSPACE_ENV_FILE", BASE_DIR / ".env")
+PROJECT_ROOT = BASE_DIR.parent
+env_override = os.getenv("FOLDSPACE_ENV_FILE")
+if env_override:
+    ENV_FILE = Path(env_override)
+else:
+    root_env = PROJECT_ROOT / ".env"
+    script_env = BASE_DIR / ".env"
+    ENV_FILE = root_env if root_env.exists() else script_env
+
 load_dotenv(ENV_FILE)
 
 AGENT_SEED_PHRASE = os.getenv("AGENT_SEED_PHRASE")
