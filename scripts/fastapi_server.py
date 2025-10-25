@@ -1,10 +1,15 @@
+import json
 import os
 from pathlib import Path
 from typing import Any, Dict, Optional, cast
 from uuid import uuid4
+from urllib.error import HTTPError, URLError
+from urllib.parse import quote, urljoin
+from urllib.request import Request, urlopen
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, status
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from uagents_core.contrib.protocols.chat import ChatMessage, TextContent
@@ -28,6 +33,13 @@ if not ENV_FILE.exists():
 
 load_dotenv(ENV_FILE)
 
+DEFAULT_AGENTVERSE_BASE_URL = "https://agentverse.ai/"
+
+
+def _ensure_trailing_slash(value: str) -> str:
+    return value if value.endswith("/") else f"{value}/"
+
+
 AGENTVERSE_API_KEY = os.getenv("AGENTVERSE_API_KEY")
 AGENTVERSE_BASE_URL = os.getenv("AGENTVERSE_BASE_URL")
 AGENTVERSE_CHAT_AGENT_ID = os.getenv("AGENTVERSE_CHAT_AGENT_ID")
@@ -41,6 +53,97 @@ if not AGENTVERSE_BASE_URL:
 
 if not AGENTVERSE_CHAT_AGENT_ID:
     print("[FastAPI] Warning: AGENTVERSE_CHAT_AGENT_ID is not configured; chat forwarding metadata will be incomplete.")
+
+AGENTVERSE_BASE_URL_RESOLVED = _ensure_trailing_slash(AGENTVERSE_BASE_URL or DEFAULT_AGENTVERSE_BASE_URL)
+
+
+def _build_agentverse_messages_url(agent_id: str) -> str:
+    encoded_agent_id = quote(agent_id, safe="")
+    return urljoin(AGENTVERSE_BASE_URL_RESOLVED, f"v1/agents/{encoded_agent_id}/messages")
+
+
+def _post_agentverse_placeholder(agent_id: str, message: str, metadata: Optional["JSONDict"]) -> tuple[bool, Optional[str]]:
+    if not AGENTVERSE_API_KEY:
+        return False, "AGENTVERSE_API_KEY missing"
+
+    target_url = _build_agentverse_messages_url(agent_id)
+    payload: JSONDict = {"message": message}
+    if metadata:
+        payload["metadata"] = metadata
+
+    payload_json = json.dumps(payload, default=str)
+    preview = payload_json if len(payload_json) <= 500 else f"{payload_json[:500]}..."
+    print(
+        "[FastAPI][Agentverse] Attempting to send placeholder message",
+        {
+            "url": target_url,
+            "agentId": agent_id,
+            "payloadPreview": preview,
+        },
+    )
+
+    request = Request(
+        target_url,
+        data=payload_json.encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {AGENTVERSE_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+
+    try:
+        with urlopen(request, timeout=10) as response:
+            status_code = getattr(response, "status", response.getcode())
+            body = response.read()
+            body_preview = body.decode("utf-8", "ignore") if body else ""
+            if len(body_preview) > 300:
+                body_preview = f"{body_preview[:300]}..."
+            print(
+                "[FastAPI][Agentverse] Placeholder sent successfully",
+                {
+                    "status": status_code,
+                    "responseBytes": len(body),
+                    "responsePreview": body_preview,
+                },
+            )
+            return True, None
+    except HTTPError as exc:
+        error_body = exc.read().decode("utf-8", "ignore")
+        print(
+            "[FastAPI][Agentverse] HTTP error while sending placeholder",
+            {
+                "status": exc.code,
+                "reason": exc.reason,
+                "body": error_body,
+                "url": target_url,
+            },
+        )
+        return False, f"HTTP {exc.code}: {error_body or exc.reason}"
+    except URLError as exc:
+        print(
+            "[FastAPI][Agentverse] Network error while sending placeholder",
+            {
+                "url": target_url,
+                "error": str(exc),
+            },
+        )
+        return False, str(getattr(exc, "reason", exc))
+    except Exception as exc:  # noqa: BLE001
+        print(
+            "[FastAPI][Agentverse] Unexpected error while sending placeholder",
+            {
+                "url": target_url,
+                "error": str(exc),
+            },
+        )
+        return False, str(exc)
+
+    return False, "Unknown Agentverse response state"
+
+
+async def send_placeholder_to_agentverse(agent_id: str, message: str, metadata: Optional["JSONDict"]) -> tuple[bool, Optional[str]]:
+    return await run_in_threadpool(_post_agentverse_placeholder, agent_id, message, metadata)
 
 app = FastAPI(
     title="Foldspace FastAPI Adapter",
@@ -131,14 +234,58 @@ async def handle_chat(env: Envelope):
         },
     )
 
-    print(
-        f"[FastAPI][Chat] Placeholder mode active. Responding with '{CHAT_PLACEHOLDER_RESPONSE}' "
-        "without forwarding to Agentverse."
-    )
+    print(f"[FastAPI][Chat] Placeholder mode active. Reply text: '{CHAT_PLACEHOLDER_RESPONSE}'.")
+
+    agentverse_metadata: JSONDict = {
+        "sender": env.sender,
+        "recipient": envelope_meta.get("recipient"),
+        "protocol": envelope_meta.get("protocol"),
+        "session": str(envelope_meta.get("session")) if envelope_meta.get("session") else None,
+        "messageId": getattr(msg, "id", None),
+        "placeholder": True,
+        "messagePreview": preview,
+    }
+    agentverse_metadata = {key: value for key, value in agentverse_metadata.items() if value is not None}
+    print("[FastAPI][Chat] Agentverse metadata prepared", agentverse_metadata)
 
     warning: Optional[str] = None
-    send_status = "disabled"
     delivery_statuses: Optional[list[JSONDict | str]] = None
+    send_status = "disabled"
+
+    if AGENTVERSE_API_KEY and AGENTVERSE_CHAT_AGENT_ID:
+        success, error_detail = await send_placeholder_to_agentverse(
+            AGENTVERSE_CHAT_AGENT_ID,
+            CHAT_PLACEHOLDER_RESPONSE,
+            agentverse_metadata,
+        )
+        if success:
+            send_status = "forwarded"
+            delivery_statuses = [
+                {
+                    "status": "forwarded",
+                    "destination": AGENTVERSE_CHAT_AGENT_ID,
+                    "transport": "agentverse_http",
+                }
+            ]
+        else:
+            send_status = "forward_failed"
+            warning = f"Agentverse forward failed: {error_detail}"
+            delivery_statuses = [
+                {
+                    "status": "failed",
+                    "destination": AGENTVERSE_CHAT_AGENT_ID,
+                    "transport": "agentverse_http",
+                    "detail": error_detail,
+                }
+            ]
+    else:
+        missing_fields = []
+        if not AGENTVERSE_API_KEY:
+            missing_fields.append("AGENTVERSE_API_KEY")
+        if not AGENTVERSE_CHAT_AGENT_ID:
+            missing_fields.append("AGENTVERSE_CHAT_AGENT_ID")
+        warning = f"Missing {', '.join(missing_fields)}; outbound placeholder skipped."
+        print(f"[FastAPI][Chat] {warning}")
 
     return _placeholder_response(
         "/chat",
