@@ -14,15 +14,25 @@ from uagents_core.utils.messages import parse_envelope, send_message_to_agent
 
 BASE_DIR = Path(__file__).parent
 PROJECT_ROOT = BASE_DIR.parent
+DEFAULT_ENV_FILE = PROJECT_ROOT / ".env"
 env_override = os.getenv("FOLDSPACE_ENV_FILE")
 if env_override:
     ENV_FILE = Path(env_override)
 else:
-    root_env = PROJECT_ROOT / ".env"
-    script_env = BASE_DIR / ".env"
-    ENV_FILE = root_env if root_env.exists() else script_env
+    ENV_FILE = DEFAULT_ENV_FILE
+
+if not ENV_FILE.exists():
+    fallback_env = BASE_DIR / ".env"
+    if fallback_env.exists():
+        print(f"[FastAPI] Warning: {ENV_FILE} not found, falling back to {fallback_env}")
+        ENV_FILE = fallback_env
 
 load_dotenv(ENV_FILE)
+
+AGENTVERSE_API_KEY = os.getenv("AGENTVERSE_API_KEY")
+AGENTVERSE_BASE_URL = os.getenv("AGENTVERSE_BASE_URL")
+AGENTVERSE_CHAT_AGENT_ID = os.getenv("AGENTVERSE_CHAT_AGENT_ID")
+CHAT_PLACEHOLDER_RESPONSE = "Message received"
 
 AGENT_SEED_PHRASE = os.getenv("AGENT_SEED_PHRASE")
 identity: Optional[Identity]
@@ -34,6 +44,15 @@ else:
         "[FastAPI] Warning: AGENT_SEED_PHRASE is not configured. "
         "Outbound /chat responses will be disabled."
     )
+
+if not AGENTVERSE_API_KEY:
+    print("[FastAPI] Warning: AGENTVERSE_API_KEY is not configured; Agentverse features will be limited.")
+
+if not AGENTVERSE_BASE_URL:
+    print("[FastAPI] Warning: AGENTVERSE_BASE_URL is not configured; default Agentverse URL will be assumed.")
+
+if not AGENTVERSE_CHAT_AGENT_ID:
+    print("[FastAPI] Warning: AGENTVERSE_CHAT_AGENT_ID is not configured; chat forwarding metadata will be incomplete.")
 
 app = FastAPI(
     title="Foldspace FastAPI Adapter",
@@ -131,7 +150,7 @@ async def handle_chat(env: Envelope):
     if identity:
         statuses = send_message_to_agent(
             destination=env.sender,
-            msg=ChatMessage([TextContent("Thanks for the message!")]),
+            msg=ChatMessage([TextContent(CHAT_PLACEHOLDER_RESPONSE)]),
             sender=identity,
         )
 
@@ -160,6 +179,7 @@ async def handle_chat(env: Envelope):
     return _placeholder_response(
         "/chat",
         "POST",
+        placeholderResponse=CHAT_PLACEHOLDER_RESPONSE,
         messagePreview=preview,
         sendStatus=send_status,
         deliveryStatuses=delivery_statuses,

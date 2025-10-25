@@ -17,9 +17,9 @@ python -m pip install -r requirements.txt
 ## Usage
 Export the required secrets and run the script:
 ```bash
-export AGENTVERSE_KEY="your-agentverse-api-key"
+export AGENTVERSE_API_KEY="your-agentverse-api-key"
 export AGENT_SEED_PHRASE="urge stay ... seed phrase ..."
-python register_price_agent.py
+python register_t2v_agent.py
 ```
 
 Upon success the script prints the registered agent label and endpoint. Missing environment variables cause the script to exit with a non-zero status and a helpful message.
@@ -37,7 +37,7 @@ uv pip install -r scripts/requirements.txt
 uv run uvicorn scripts.fastapi_server:app --host 0.0.0.0 --port 3000 --reload
 ```
 
-`uv run` automatically picks the `.venv` interpreter. Update `scripts/.env` (or supply `FOLDSPACE_ENV_FILE`) so the app has `AGENT_SEED_PHRASE`.  
+`uv run` automatically picks the `.venv` interpreter. Update the project root `.env` (or supply `FOLDSPACE_ENV_FILE`) so the app has `AGENT_SEED_PHRASE`.  
 If the seed phrase is omitted the server still starts, but `/chat` becomes receive-only.
 
 ### Classic virtualenv
@@ -47,7 +47,7 @@ export AGENT_SEED_PHRASE="urge stay ... seed phrase ..."
 python -m uvicorn scripts.fastapi_server:app --host 0.0.0.0 --port 3000 --reload
 ```
 
-Environment variables are loaded from `scripts/.env` automatically via `python-dotenv`. Provide `AGENT_SEED_PHRASE` to enable outbound `/chat` responses; otherwise the endpoint will log a warning and skip replies.
+Environment variables are loaded from the project `.env` automatically via `python-dotenv` (with `scripts/.env` kept as a fallback). Provide `AGENT_SEED_PHRASE` to enable outbound `/chat` responses; otherwise the endpoint will log a warning and skip replies.
 
 ### Ubuntu uv + PM2 bootstrap
 Use the helper script to automate uv installation, dependency sync, and PM2 startup:

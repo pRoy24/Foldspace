@@ -94,17 +94,17 @@ npm run agentverse:deploy -- \
 The CLI accepts `AGENTVERSE_CHALLENGE`, `AGENTVERSE_CHALLENGE_RESPONSE`, `AGENTVERSE_PRIVATE_KEY`, and other related values as environment variables. When a private key is provided the challenge response signature is generated automatically. Passing `--json` prints the raw API response.
 
 #### Standalone Agentverse Registration (Python)
-If you only need to register the public price discovery endpoint with Agentverse, use the helper script in `python/register_price_agent.py`:
+If you only need to register the public price discovery endpoint with Agentverse, use the helper script in `scripts/register_t2v_agent.py`:
 
 ```bash
-cd python
+cd scripts
 python -m venv .venv
 source .venv/bin/activate
 python -m ensurepip --upgrade
 python -m pip install -r requirements.txt
-export AGENTVERSE_KEY="your-agentverse-api-key"
+export AGENTVERSE_API_KEY="your-agentverse-api-key"
 export AGENT_SEED_PHRASE="urge stay ... seed phrase ..."
-python register_price_agent.py
+python register_t2v_agent.py
 ```
 
 The script invokes `register_chat_agent` with the hosted webhook `http://65.109.163.21:3000/request_pricing` and marks the agent active.
