@@ -1,10 +1,11 @@
 import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional, cast
 from uuid import uuid4
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urljoin
+from urllib.parse import urljoin
 from urllib.request import Request, urlopen
 
 from dotenv import load_dotenv
@@ -12,8 +13,15 @@ from fastapi import FastAPI, HTTPException, status
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from uagents_core.contrib.protocols.chat import ChatMessage, TextContent
+from uagents_core.contrib.protocols.chat import (
+    ChatAcknowledgement,
+    ChatMessage,
+    TextContent,
+    chat_protocol_spec,
+)
 from uagents_core.envelope import Envelope
+from uagents_core.identity import Identity
+from uagents_core.models import Model
 from uagents_core.utils.messages import parse_envelope
 
 BASE_DIR = Path(__file__).parent
@@ -42,7 +50,7 @@ def _ensure_trailing_slash(value: str) -> str:
 
 AGENTVERSE_API_KEY = os.getenv("AGENTVERSE_API_KEY")
 AGENTVERSE_BASE_URL = os.getenv("AGENTVERSE_BASE_URL")
-AGENTVERSE_CHAT_AGENT_ID = os.getenv("AGENTVERSE_CHAT_AGENT_ID")
+AGENT_SEED_PHRASE = os.getenv("AGENT_SEED_PHRASE")
 CHAT_PLACEHOLDER_RESPONSE = "Message received"
 
 if not AGENTVERSE_API_KEY:
@@ -51,44 +59,63 @@ if not AGENTVERSE_API_KEY:
 if not AGENTVERSE_BASE_URL:
     print("[FastAPI] Warning: AGENTVERSE_BASE_URL is not configured; default Agentverse URL will be assumed.")
 
-if not AGENTVERSE_CHAT_AGENT_ID:
-    print("[FastAPI] Warning: AGENTVERSE_CHAT_AGENT_ID is not configured; chat forwarding metadata will be incomplete.")
+if not AGENT_SEED_PHRASE:
+    print("[FastAPI] Warning: AGENT_SEED_PHRASE is not configured; outbound chat replies will be skipped.")
 
 AGENTVERSE_BASE_URL_RESOLVED = _ensure_trailing_slash(AGENTVERSE_BASE_URL or DEFAULT_AGENTVERSE_BASE_URL)
+# Mailbox submission endpoint documented at https://docs.agentverse.ai/api-reference/mailbox/submit-message-envelope
+AGENTVERSE_MAILBOX_SUBMIT_URL = urljoin(AGENTVERSE_BASE_URL_RESOLVED, "v1/submit")
+
+CHAT_MESSAGE_SCHEMA_DIGEST = Model.build_schema_digest(ChatMessage)
+CHAT_ACK_SCHEMA_DIGEST = Model.build_schema_digest(ChatAcknowledgement)
+CHAT_PROTOCOL_DIGEST = chat_protocol_spec.digest
+
+AGENT_IDENTITY: Optional[Identity] = None
+AGENT_ADDRESS: Optional[str] = None
+
+if AGENT_SEED_PHRASE:
+    try:
+        AGENT_IDENTITY = Identity.from_seed(AGENT_SEED_PHRASE, 0)
+        AGENT_ADDRESS = AGENT_IDENTITY.address
+        print(f"[FastAPI] Agent identity loaded. Address: {AGENT_ADDRESS}")
+    except Exception as identity_error:  # noqa: BLE001
+        AGENT_IDENTITY = None
+        AGENT_ADDRESS = None
+        print(f"[FastAPI] Failed to derive agent identity from AGENT_SEED_PHRASE: {identity_error}")
 
 
-def _build_agentverse_messages_url(agent_id: str) -> str:
-    encoded_agent_id = quote(agent_id, safe="")
-    return urljoin(AGENTVERSE_BASE_URL_RESOLVED, f"v1/agents/{encoded_agent_id}/messages")
+def _agentverse_mailbox_headers() -> Dict[str, str]:
+    headers: Dict[str, str] = {"Content-Type": "application/json"}
+    if AGENTVERSE_API_KEY:
+        headers["Authorization"] = f"Bearer {AGENTVERSE_API_KEY}"
+    return headers
 
 
-def _post_agentverse_placeholder(agent_id: str, message: str, metadata: Optional["JSONDict"]) -> tuple[bool, Optional[str]]:
-    if not AGENTVERSE_API_KEY:
-        return False, "AGENTVERSE_API_KEY missing"
+def _serialize_envelope(envelope: Envelope) -> str:
+    return json.dumps(envelope.model_dump(mode="json"), default=str)
 
-    target_url = _build_agentverse_messages_url(agent_id)
-    payload: JSONDict = {"message": message}
-    if metadata:
-        payload["metadata"] = metadata
 
-    payload_json = json.dumps(payload, default=str)
-    preview = payload_json if len(payload_json) <= 500 else f"{payload_json[:500]}..."
+def _post_agentverse_envelope(envelope: Envelope, envelope_type: str) -> tuple[bool, Optional[str]]:
+    payload_json = _serialize_envelope(envelope)
+    preview = payload_json if len(payload_json) <= 600 else f"{payload_json[:600]}..."
     print(
-        "[FastAPI][Agentverse] Attempting to send placeholder message",
+        "[FastAPI][Agentverse] Attempting to submit envelope",
         {
-            "url": target_url,
-            "agentId": agent_id,
+            "url": AGENTVERSE_MAILBOX_SUBMIT_URL,
+            "sender": envelope.sender,
+            "target": envelope.target,
+            "session": str(envelope.session),
+            "schemaDigest": envelope.schema_digest,
+            "protocolDigest": envelope.protocol_digest,
+            "envelopeType": envelope_type,
             "payloadPreview": preview,
         },
     )
 
     request = Request(
-        target_url,
+        AGENTVERSE_MAILBOX_SUBMIT_URL,
         data=payload_json.encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {AGENTVERSE_API_KEY}",
-            "Content-Type": "application/json",
-        },
+        headers=_agentverse_mailbox_headers(),
         method="POST",
     )
 
@@ -100,41 +127,45 @@ def _post_agentverse_placeholder(agent_id: str, message: str, metadata: Optional
             if len(body_preview) > 300:
                 body_preview = f"{body_preview[:300]}..."
             print(
-                "[FastAPI][Agentverse] Placeholder sent successfully",
+                "[FastAPI][Agentverse] Envelope submitted successfully",
                 {
                     "status": status_code,
                     "responseBytes": len(body),
                     "responsePreview": body_preview,
+                    "envelopeType": envelope_type,
                 },
             )
             return True, None
     except HTTPError as exc:
         error_body = exc.read().decode("utf-8", "ignore")
         print(
-            "[FastAPI][Agentverse] HTTP error while sending placeholder",
+            "[FastAPI][Agentverse] HTTP error while submitting envelope",
             {
                 "status": exc.code,
                 "reason": exc.reason,
                 "body": error_body,
-                "url": target_url,
+                "url": AGENTVERSE_MAILBOX_SUBMIT_URL,
+                "envelopeType": envelope_type,
             },
         )
         return False, f"HTTP {exc.code}: {error_body or exc.reason}"
     except URLError as exc:
         print(
-            "[FastAPI][Agentverse] Network error while sending placeholder",
+            "[FastAPI][Agentverse] Network error while submitting envelope",
             {
-                "url": target_url,
+                "url": AGENTVERSE_MAILBOX_SUBMIT_URL,
                 "error": str(exc),
+                "envelopeType": envelope_type,
             },
         )
         return False, str(getattr(exc, "reason", exc))
     except Exception as exc:  # noqa: BLE001
         print(
-            "[FastAPI][Agentverse] Unexpected error while sending placeholder",
+            "[FastAPI][Agentverse] Unexpected error while submitting envelope",
             {
-                "url": target_url,
+                "url": AGENTVERSE_MAILBOX_SUBMIT_URL,
                 "error": str(exc),
+                "envelopeType": envelope_type,
             },
         )
         return False, str(exc)
@@ -142,8 +173,50 @@ def _post_agentverse_placeholder(agent_id: str, message: str, metadata: Optional
     return False, "Unknown Agentverse response state"
 
 
-async def send_placeholder_to_agentverse(agent_id: str, message: str, metadata: Optional["JSONDict"]) -> tuple[bool, Optional[str]]:
-    return await run_in_threadpool(_post_agentverse_placeholder, agent_id, message, metadata)
+async def submit_agentverse_envelope(envelope: Envelope, envelope_type: str) -> tuple[bool, Optional[str]]:
+    return await run_in_threadpool(_post_agentverse_envelope, envelope, envelope_type)
+
+
+def _build_ack_envelope(
+    incoming: Envelope,
+    message: ChatMessage,
+    metadata: Optional[Dict[str, str]],
+    identity: Identity,
+) -> Envelope:
+    acknowledgement = ChatAcknowledgement(
+        acknowledged_msg_id=message.msg_id,
+        metadata=metadata,
+    )
+    envelope = Envelope(
+        version=incoming.version,
+        sender=identity.address,
+        target=incoming.sender,
+        session=incoming.session,
+        schema_digest=CHAT_ACK_SCHEMA_DIGEST,
+        protocol_digest=CHAT_PROTOCOL_DIGEST,
+    )
+    envelope.encode_payload(acknowledgement.model_dump_json())
+    envelope.sign(identity)
+    return envelope
+
+
+def _build_placeholder_message_envelope(
+    incoming: Envelope,
+    reply_text: str,
+    identity: Identity,
+) -> Envelope:
+    message = ChatMessage(content=[TextContent(text=reply_text)])
+    envelope = Envelope(
+        version=incoming.version,
+        sender=identity.address,
+        target=incoming.sender,
+        session=incoming.session,
+        schema_digest=CHAT_MESSAGE_SCHEMA_DIGEST,
+        protocol_digest=CHAT_PROTOCOL_DIGEST,
+    )
+    envelope.encode_payload(message.model_dump_json())
+    envelope.sign(identity)
+    return envelope
 
 app = FastAPI(
     title="Foldspace FastAPI Adapter",
@@ -236,56 +309,85 @@ async def handle_chat(env: Envelope):
 
     print(f"[FastAPI][Chat] Placeholder mode active. Reply text: '{CHAT_PLACEHOLDER_RESPONSE}'.")
 
-    agentverse_metadata: JSONDict = {
-        "sender": env.sender,
-        "recipient": envelope_meta.get("recipient"),
-        "protocol": envelope_meta.get("protocol"),
-        "session": str(envelope_meta.get("session")) if envelope_meta.get("session") else None,
-        "messageId": getattr(msg, "id", None),
-        "placeholder": True,
-        "messagePreview": preview,
+    ack_metadata: Dict[str, str] = {
+        "placeholder": "true",
+        "placeholder_response": CHAT_PLACEHOLDER_RESPONSE,
+        "received_at": datetime.now(timezone.utc).isoformat(),
     }
-    agentverse_metadata = {key: value for key, value in agentverse_metadata.items() if value is not None}
-    print("[FastAPI][Chat] Agentverse metadata prepared", agentverse_metadata)
+    message_id = getattr(msg, "msg_id", None)
+    if message_id:
+        ack_metadata["message_id"] = str(message_id)
+    session_value = envelope_meta.get("session")
+    if session_value:
+        ack_metadata["session"] = str(session_value)
+    if env.sender:
+        ack_metadata["sender"] = env.sender
+    if preview:
+        ack_metadata["message_preview"] = preview
+    if not message_text:
+        ack_metadata["placeholder_reason"] = "empty_message"
 
-    warning: Optional[str] = None
-    delivery_statuses: Optional[list[JSONDict | str]] = None
-    send_status = "disabled"
+    warning_messages: list[str] = []
+    delivery_statuses: list[JSONDict] = []
+    send_status = "mailbox_disabled"
 
-    if AGENTVERSE_API_KEY and AGENTVERSE_CHAT_AGENT_ID:
-        success, error_detail = await send_placeholder_to_agentverse(
-            AGENTVERSE_CHAT_AGENT_ID,
-            CHAT_PLACEHOLDER_RESPONSE,
-            agentverse_metadata,
-        )
-        if success:
-            send_status = "forwarded"
-            delivery_statuses = [
+    if AGENT_IDENTITY:
+        ack_envelope: Optional[Envelope] = None
+        reply_envelope: Optional[Envelope] = None
+
+        try:
+            ack_envelope = _build_ack_envelope(
+                incoming=env,
+                message=msg,
+                metadata=ack_metadata,
+                identity=AGENT_IDENTITY,
+            )
+        except Exception as build_error:  # noqa: BLE001
+            warning_messages.append(f"Failed to build acknowledgement envelope: {build_error}")
+            print(f"[FastAPI][Chat] Error constructing acknowledgement: {build_error}")
+
+        try:
+            reply_envelope = _build_placeholder_message_envelope(
+                incoming=env,
+                reply_text=CHAT_PLACEHOLDER_RESPONSE,
+                identity=AGENT_IDENTITY,
+            )
+        except Exception as build_error:  # noqa: BLE001
+            warning_messages.append(f"Failed to build chat reply envelope: {build_error}")
+            print(f"[FastAPI][Chat] Error constructing reply envelope: {build_error}")
+
+        async def _submit_and_record(envelope: Envelope, envelope_type: str) -> None:
+            success, error_detail = await submit_agentverse_envelope(envelope, envelope_type)
+            delivery_statuses.append(
                 {
-                    "status": "forwarded",
-                    "destination": AGENTVERSE_CHAT_AGENT_ID,
-                    "transport": "agentverse_http",
-                }
-            ]
-        else:
-            send_status = "forward_failed"
-            warning = f"Agentverse forward failed: {error_detail}"
-            delivery_statuses = [
-                {
-                    "status": "failed",
-                    "destination": AGENTVERSE_CHAT_AGENT_ID,
-                    "transport": "agentverse_http",
+                    "status": "submitted" if success else "failed",
+                    "destination": env.sender,
+                    "transport": "agentverse_mailbox",
+                    "messageType": envelope_type,
                     "detail": error_detail,
                 }
-            ]
+            )
+            if not success and error_detail:
+                warning_messages.append(f"{envelope_type} submission failed: {error_detail}")
+
+        if ack_envelope:
+            await _submit_and_record(ack_envelope, "chat_acknowledgement")
+        if reply_envelope:
+            await _submit_and_record(reply_envelope, "chat_message")
+
+        attempts = len(delivery_statuses)
+        successes = sum(1 for status_entry in delivery_statuses if status_entry["status"] == "submitted")
+        if attempts == 0:
+            send_status = "mailbox_construct_failed"
+        elif successes == attempts:
+            send_status = "mailbox_submitted"
+        elif successes == 0:
+            send_status = "mailbox_failed"
+        else:
+            send_status = "mailbox_partial"
     else:
-        missing_fields = []
-        if not AGENTVERSE_API_KEY:
-            missing_fields.append("AGENTVERSE_API_KEY")
-        if not AGENTVERSE_CHAT_AGENT_ID:
-            missing_fields.append("AGENTVERSE_CHAT_AGENT_ID")
-        warning = f"Missing {', '.join(missing_fields)}; outbound placeholder skipped."
-        print(f"[FastAPI][Chat] {warning}")
+        warning_messages.append("AGENT_SEED_PHRASE missing; outbound placeholder skipped.")
+        print("[FastAPI][Chat] AGENT_SEED_PHRASE missing; outbound placeholder skipped.")
 
     return _placeholder_response(
         "/chat",
@@ -293,8 +395,9 @@ async def handle_chat(env: Envelope):
         placeholderResponse=CHAT_PLACEHOLDER_RESPONSE,
         messagePreview=preview,
         sendStatus=send_status,
-        deliveryStatuses=delivery_statuses,
-        warning=warning,
+        deliveryStatuses=delivery_statuses or None,
+        warning=" | ".join(warning_messages) if warning_messages else None,
+        ackMetadata=ack_metadata,
         **envelope_meta,
     )
 
