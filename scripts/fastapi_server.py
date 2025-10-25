@@ -9,8 +9,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from uagents_core.contrib.protocols.chat import ChatMessage, TextContent
 from uagents_core.envelope import Envelope
-from uagents_core.identity import Identity
-from uagents_core.utils.messages import parse_envelope, send_message_to_agent
+from uagents_core.utils.messages import parse_envelope
 
 BASE_DIR = Path(__file__).parent
 PROJECT_ROOT = BASE_DIR.parent
@@ -33,17 +32,6 @@ AGENTVERSE_API_KEY = os.getenv("AGENTVERSE_API_KEY")
 AGENTVERSE_BASE_URL = os.getenv("AGENTVERSE_BASE_URL")
 AGENTVERSE_CHAT_AGENT_ID = os.getenv("AGENTVERSE_CHAT_AGENT_ID")
 CHAT_PLACEHOLDER_RESPONSE = "Message received"
-
-AGENT_SEED_PHRASE = os.getenv("AGENT_SEED_PHRASE")
-identity: Optional[Identity]
-if AGENT_SEED_PHRASE:
-    identity = Identity.from_seed(AGENT_SEED_PHRASE, 0)
-else:
-    identity = None
-    print(
-        "[FastAPI] Warning: AGENT_SEED_PHRASE is not configured. "
-        "Outbound /chat responses will be disabled."
-    )
 
 if not AGENTVERSE_API_KEY:
     print("[FastAPI] Warning: AGENTVERSE_API_KEY is not configured; Agentverse features will be limited.")
@@ -143,38 +131,14 @@ async def handle_chat(env: Envelope):
         },
     )
 
+    print(
+        f"[FastAPI][Chat] Placeholder mode active. Responding with '{CHAT_PLACEHOLDER_RESPONSE}' "
+        "without forwarding to Agentverse."
+    )
+
     warning: Optional[str] = None
-    send_status = "skipped"
+    send_status = "disabled"
     delivery_statuses: Optional[list[JSONDict | str]] = None
-
-    if identity:
-        statuses = send_message_to_agent(
-            destination=env.sender,
-            msg=ChatMessage([TextContent(CHAT_PLACEHOLDER_RESPONSE)]),
-            sender=identity,
-        )
-
-        if isinstance(statuses, list):
-            delivery_statuses = [
-                status.model_dump() if hasattr(status, "model_dump") else str(status) for status in statuses
-            ]
-            if not statuses:
-                send_status = "no_endpoints"
-            elif any(
-                entry.get("status") == "sent" for entry in delivery_statuses if isinstance(entry, dict)
-            ):
-                send_status = "sent"
-            else:
-                send_status = "failed"
-        else:
-            delivery_statuses = [str(statuses)]
-            send_status = "unknown"
-
-        print(f"[FastAPI][Chat] Delivery statuses: {delivery_statuses}")
-    else:
-        warning = "AGENT_SEED_PHRASE not configured; outbound reply skipped."
-        send_status = "disabled"
-        print(f"[FastAPI][Chat] {warning}")
 
     return _placeholder_response(
         "/chat",
