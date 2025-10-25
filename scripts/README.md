@@ -61,3 +61,26 @@ The script:
 - Installs PM2 via npm when absent, then runs `pm2 start` with name `foldspace-fastapi` on port `3000` (override via `PM2_APP_NAME` and `PORT`).
 
 After it finishes run `pm2 status` to confirm the FastAPI worker is healthy; `pm2 logs foldspace-fastapi` tails runtime logs.
+
+## Agentverse Hosted Chat Agent
+`scripts/hosted_agent/agent.py` wires the Foldspace proxy into the lightweight uAgents chat protocol so you can expose the API as a hosted Agentverse experience.
+
+- **Slash commands** & responses explicitly show the HTTP method, URL, request JSON, and response JSON for `/create`, `/status`, and `/sessions`. Users are prompted to format `/create` exactly as:
+  ```
+  /create
+  Prompt - vivid description
+  Image Model - model-name
+  Video Model - model-name
+  Duration - 30s
+  ```
+  `/status <sessionId>` and `/sessions` fetch proxy state, while `/suggest <rough idea>` (optional) calls OpenAI to polish prompts.
+- **Proxy configuration** via `FOLDSPACE_PROXY_BASE_URL` (defaults to `http://localhost:4001`). All other environment variables reuse the project `.env` loader or accept overrides via `FOLDSPACE_ENV_FILE`.
+- **OpenAI adapter** (`scripts/hosted_agent/openai_adapter.py`) provides chat completions and embeddings; enable it by exporting `OPENAI_API_KEY` (and optionally `OPENAI_ORGANIZATION`, `OPENAI_CHAT_MODEL`, `OPENAI_EMBEDDING_MODEL`).
+- **Running locally**
+  ```bash
+  source .venv/bin/activate
+  python -m pip install -r scripts/requirements.txt
+  FOLDSPACE_PROXY_BASE_URL="http://localhost:4001" \
+  python scripts/hosted_agent/agent.py
+  ```
+  The agent publishes the chat protocol manifest automatically; point an Agentverse hosted agent at the resulting endpoint/identity to expose the chat interface.

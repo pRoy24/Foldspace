@@ -48,11 +48,11 @@ if not agentverse_chat_agent_id:
 
 
 register_chat_agent(
-    "T2V Chat",
+    "Test T2V",
     "http://65.109.163.21/chat",
     active=True,
     credentials=RegistrationRequestCredentials(
-        agentverse_api_key=agentverse_api_key,
-        agent_seed_phrase=agent_seed_phrase,
+        agentverse_api_key=os.environ["AGENTVERSE_API_KEY"],
+        agent_seed_phrase=os.environ["AGENT_SEED_PHRASE"],
     ),
 )
