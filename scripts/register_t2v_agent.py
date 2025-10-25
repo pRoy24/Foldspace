@@ -10,7 +10,7 @@ from uagents_core.utils.registration import (
 load_dotenv()
 
 register_chat_agent(
-    "T2V Pricing",
+    "test agent",
     "http://65.109.163.21/",
     active=True,
     credentials=RegistrationRequestCredentials(
