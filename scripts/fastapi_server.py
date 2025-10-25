@@ -98,24 +98,74 @@ async def status_check():
 
 @app.post("/chat")
 async def handle_chat(env: Envelope):
+    envelope_meta = {
+        "sender": env.sender,
+        "recipient": getattr(env, "recipient", None),
+        "protocol": getattr(env, "protocol", None),
+        "session": getattr(env, "session", None),
+        "trace": getattr(env, "trace", None),
+    }
+    print(f"[FastAPI][Chat] Envelope received: {envelope_meta}")
+
     try:
         msg = cast(ChatMessage, parse_envelope(env, ChatMessage))
     except Exception as exc:  # noqa: BLE001
+        print(f"[FastAPI][Chat] Failed to parse envelope: {exc}")
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
-    print(f"Received message from {env.sender}: {msg.text()}")
+    message_text = msg.text()
+    preview = message_text if not message_text or len(message_text) <= 200 else f"{message_text[:200]}..."
+    print(
+        "[FastAPI][Chat] Parsed message",
+        {
+            "message_id": getattr(msg, "id", None),
+            "payload_type": type(msg).__name__,
+            "preview": preview,
+        },
+    )
+
+    warning: Optional[str] = None
+    send_status = "skipped"
+    delivery_statuses: Optional[list[JSONDict | str]] = None
 
     if identity:
-        send_message_to_agent(
+        statuses = send_message_to_agent(
             destination=env.sender,
             msg=ChatMessage([TextContent("Thanks for the message!")]),
             sender=identity,
         )
-        return {"status": "received"}
 
-    warning = "AGENT_SEED_PHRASE not configured; outbound reply skipped."
-    print(f"[FastAPI] {warning}")
-    return {"status": "received", "warning": warning}
+        if isinstance(statuses, list):
+            delivery_statuses = [
+                status.model_dump() if hasattr(status, "model_dump") else str(status) for status in statuses
+            ]
+            if not statuses:
+                send_status = "no_endpoints"
+            elif any(
+                entry.get("status") == "sent" for entry in delivery_statuses if isinstance(entry, dict)
+            ):
+                send_status = "sent"
+            else:
+                send_status = "failed"
+        else:
+            delivery_statuses = [str(statuses)]
+            send_status = "unknown"
+
+        print(f"[FastAPI][Chat] Delivery statuses: {delivery_statuses}")
+    else:
+        warning = "AGENT_SEED_PHRASE not configured; outbound reply skipped."
+        send_status = "disabled"
+        print(f"[FastAPI][Chat] {warning}")
+
+    return _placeholder_response(
+        "/chat",
+        "POST",
+        messagePreview=preview,
+        sendStatus=send_status,
+        deliveryStatuses=delivery_statuses,
+        warning=warning,
+        **envelope_meta,
+    )
 
 
 @app.get("/request_pricing")
