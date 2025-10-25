@@ -17,10 +17,15 @@ ENV_FILE = os.getenv("FOLDSPACE_ENV_FILE", BASE_DIR / ".env")
 load_dotenv(ENV_FILE)
 
 AGENT_SEED_PHRASE = os.getenv("AGENT_SEED_PHRASE")
-if not AGENT_SEED_PHRASE:
-    raise RuntimeError("AGENT_SEED_PHRASE must be defined to run the FastAPI server.")
-
-identity = Identity.from_seed(AGENT_SEED_PHRASE, 0)
+identity: Optional[Identity]
+if AGENT_SEED_PHRASE:
+    identity = Identity.from_seed(AGENT_SEED_PHRASE, 0)
+else:
+    identity = None
+    print(
+        "[FastAPI] Warning: AGENT_SEED_PHRASE is not configured. "
+        "Outbound /chat responses will be disabled."
+    )
 
 app = FastAPI(
     title="Foldspace FastAPI Adapter",
@@ -91,12 +96,18 @@ async def handle_chat(env: Envelope):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     print(f"Received message from {env.sender}: {msg.text()}")
-    send_message_to_agent(
-        destination=env.sender,
-        msg=ChatMessage([TextContent("Thanks for the message!")]),
-        sender=identity,
-    )
-    return {"status": "received"}
+
+    if identity:
+        send_message_to_agent(
+            destination=env.sender,
+            msg=ChatMessage([TextContent("Thanks for the message!")]),
+            sender=identity,
+        )
+        return {"status": "received"}
+
+    warning = "AGENT_SEED_PHRASE not configured; outbound reply skipped."
+    print(f"[FastAPI] {warning}")
+    return {"status": "received", "warning": warning}
 
 
 @app.get("/request_pricing")

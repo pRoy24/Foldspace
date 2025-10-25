@@ -37,7 +37,8 @@ uv pip install -r scripts/requirements.txt
 uv run uvicorn scripts.fastapi_server:app --host 0.0.0.0 --port 3000 --reload
 ```
 
-`uv run` automatically picks the `.venv` interpreter. Update `scripts/.env` (or supply `FOLDSPACE_ENV_FILE`) so the app has `AGENT_SEED_PHRASE`.
+`uv run` automatically picks the `.venv` interpreter. Update `scripts/.env` (or supply `FOLDSPACE_ENV_FILE`) so the app has `AGENT_SEED_PHRASE`.  
+If the seed phrase is omitted the server still starts, but `/chat` becomes receive-only.
 
 ### Classic virtualenv
 ```bash
@@ -46,7 +47,7 @@ export AGENT_SEED_PHRASE="urge stay ... seed phrase ..."
 python -m uvicorn scripts.fastapi_server:app --host 0.0.0.0 --port 3000 --reload
 ```
 
-Environment variables are loaded from `scripts/.env` automatically via `python-dotenv`. Ensure `AGENT_SEED_PHRASE` is defined so the `/chat` endpoint can derive an agent identity.
+Environment variables are loaded from `scripts/.env` automatically via `python-dotenv`. Provide `AGENT_SEED_PHRASE` to enable outbound `/chat` responses; otherwise the endpoint will log a warning and skip replies.
 
 ### Ubuntu uv + PM2 bootstrap
 Use the helper script to automate uv installation, dependency sync, and PM2 startup:
